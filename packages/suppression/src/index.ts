@@ -158,6 +158,15 @@ export class FileSuppressionStore implements SuppressionStore {
     data.entries.push(full);
     this.save(data);
   }
+
+  /** Remove entries matching a predicate (used by the dashboard's Learnings manager). */
+  async remove(pred: (e: DismissedEntry) => boolean): Promise<number> {
+    const data = this.load();
+    const before = data.entries.length;
+    data.entries = data.entries.filter((e) => !pred(e));
+    this.save(data);
+    return before - data.entries.length;
+  }
 }
 
 // ---------------------------------------------------------------------------

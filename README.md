@@ -34,7 +34,8 @@ Splus/
 │   ├── suppression/        # learned per-repo noise filter (exact · rule · semantic) + pgvector
 │   ├── triage/             # LLM layer — judge/explain/suppress + fix (downstream of the engine)
 │   ├── cli/                 # `splus review` / `dismiss` / `mute` / `learnings` / `init-hooks`
-│   └── app/                 # `@splus` GitHub App (Probot)
+│   ├── app/                 # `@splus` GitHub App (Probot)
+│   └── dashboard/          # web console + public Trust Center (Hono + zero-build SPA)
 ├── REPORT.md                # strategy, architecture, MVP plan
 └── docs/RESEARCH.md         # competitive + tooling intelligence
 ```
@@ -81,6 +82,9 @@ node packages/cli/dist/index.js init-hooks --fail-on high
 node packages/cli/dist/index.js dismiss <finding-id>   # stop flagging this + close variants
 node packages/cli/dist/index.js mute hygiene.python-print  # mute a whole rule
 node packages/cli/dist/index.js learnings              # what it has learned
+
+# 6. Web console + public Trust Center (seeds sample data on first run)
+pnpm --filter @splus/dashboard start   # → http://localhost:4040  ·  /trust
 ```
 
 Or run the engine directly:
@@ -99,7 +103,8 @@ The GitHub App lives in [`packages/app`](packages/app/README.md).
 - ✅ GitHub App: Probot skeleton — clone → engine → (optional LLM triage) → batched review + suggestions + neutral check; per-repo `.splus.yml`.
 - ✅ **LLM layer** (`@splus/triage`): strictly downstream of the engine. Haiku-4.5 triage (keep/suppress + confidence + rationale + fix via forced tool-use, sharded, prompt-cached); opt-in Opus-4.8 discovery pass. Fails open — deterministic core works with zero inference.
 - ✅ **Learned suppression** (`@splus/suppression`): per-repo noise filter — exact (dismissed fingerprint), rule-mute, and **semantic** (cosine over a dependency-free feature-hash embedder; pgvector backend for hosted). Dismiss one finding → its whole class goes quiet. Wired into the CLI (`dismiss`/`mute`/`learnings`) and the App (`@splus mute <rule>`), applied before LLM spend.
-- ⏭️ Next: AST-diff noise strip · SCIP/LSP precise blast-radius tier · incremental-on-synchronize · richer transformers embedder · web dashboard + Trust Center.
+- ✅ **Web console + Trust Center** (`@splus/dashboard`): Hono + zero-build SPA. Org/repo overview, the **falling-false-positive / precision-over-time** hero chart (hand-rolled SVG), per-repo config editor (writes `.splus.yml`), a Learnings manager over the real suppression store, a transparent per-author billing meter, and a public Trust Center (no-training, ephemeral retention, self-host/BYO-LLM, provider-neutral, SOC 2, published-precision methodology).
+- ⏭️ Next: AST-diff noise strip · SCIP/LSP precise blast-radius tier · incremental-on-synchronize · richer transformers embedder · persist the dashboard config back to the repo / Postgres.
 
 ## License
 

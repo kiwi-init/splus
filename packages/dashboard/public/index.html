@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Splus · Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="scan"></div>
+    <div class="shell">
+      <aside class="rail">
+        <div class="brand">
+          <span class="mark">SPLUS</span><span class="cursor"></span>
+          <div class="brand-sub">REVIEW CONSOLE</div>
+        </div>
+        <nav id="nav">
+          <a data-route="#/" class="nav-item">▚ Overview</a>
+          <a data-route="#/billing" class="nav-item">≣ Usage &amp; billing</a>
+          <a href="/trust" class="nav-item">⛨ Trust Center</a>
+        </nav>
+        <div class="rail-foot">
+          <svg class="mini-wave" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="rail-meta">DETERMINISTIC&nbsp;ENGINE · v0.1.0</div>
+          <div class="rail-meta dim">signal ÷ noise</div>
+        </div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div id="crumb" class="crumb">OVERVIEW</div>
+          <div class="topbar-right">
+            <span class="pill pill-ok">● engine online</span>
+            <span class="org" id="org">—</span>
+          </div>
+        </header>
+        <section id="app" class="content"></section>
+      </main>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>
