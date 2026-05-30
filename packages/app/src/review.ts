@@ -6,6 +6,7 @@
  * Deterministic-only in this pass (no LLM). Every comment is anchored.
  */
 import { runEngine, type Finding, type Report } from "@splus/shared";
+import { triage } from "@splus/triage";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,7 +40,21 @@ export async function reviewPR(
       mode: { kind: "base", ref: pr.base.sha },
     });
 
-    const visible = report.findings.filter(
+    // The LLM layer is consistent with the CLI: it only RE-ranks/suppresses and
+    // explains the deterministic candidates. Opt-in + key-gated; never blocks.
+    let findings: Finding[] = report.findings;
+    const rationale = new Map<string, string>();
+    if (cfg.llm && process.env.ANTHROPIC_API_KEY) {
+      try {
+        const t = await triage(report, { root: dir, thorough: cfg.thorough });
+        findings = t.findings;
+        for (const f of t.findings) rationale.set(f.id, f.rationale);
+      } catch (err) {
+        ctx.log?.warn?.(`Splus LLM triage failed; using deterministic findings: ${String(err)}`);
+      }
+    }
+
+    const visible = findings.filter(
       (f) =>
         !cfg.ignore_paths.some((p) => f.file.startsWith(p)) &&
         (cfg.show_nits || f.tier !== "nit"),
@@ -49,7 +64,7 @@ export async function reviewPR(
       path: f.file,
       line: f.region.start_line,
       side: "RIGHT" as const,
-      body: renderComment(f),
+      body: renderComment(f, rationale.get(f.id)),
     }));
 
     await postReview(ctx, pr.number, report, visible, inline);
@@ -157,11 +172,11 @@ const ICON: Record<string, string> = {
   info: "⚪️",
 };
 
-function renderComment(f: Finding): string {
+function renderComment(f: Finding, rationale?: string): string {
   const lines: string[] = [];
   lines.push(`${ICON[f.severity] ?? "•"} **${f.title}** \`${f.rule_id}\` · ${Math.round(f.confidence * 100)}% confidence`);
   lines.push("");
-  lines.push(f.message);
+  lines.push(rationale ?? f.message);
   if (f.blast_radius) {
     const b = f.blast_radius;
     lines.push("");

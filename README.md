@@ -31,6 +31,7 @@ Splus/
 │       └── render.rs        #   pretty · JSON · SARIF
 ├── packages/
 │   ├── shared/              # canonical Finding model (TS, mirrors Rust) + engine runner
+│   ├── triage/             # LLM layer — judge/explain/suppress + fix (downstream of the engine)
 │   ├── cli/                 # `splus review` / `splus init-hooks`
 │   └── app/                 # `@splus` GitHub App (Probot)
 ├── REPORT.md                # strategy, architecture, MVP plan
@@ -63,9 +64,14 @@ pnpm -r build
 
 # 3. Review your working tree (from inside any git repo)
 export SPLUS_ENGINE=$PWD/target/release/splus-engine
-node packages/cli/dist/index.js review --staged          # pretty
+node packages/cli/dist/index.js review --staged          # pretty (deterministic, $0)
 node packages/cli/dist/index.js review --staged --agent  # JSON for Claude Code / Cursor / Codex
 node packages/cli/dist/index.js review --base origin/main # PR-style
+
+# Optional LLM layer: triages/explains/suppresses on top of the deterministic
+# candidates (needs ANTHROPIC_API_KEY; falls back to deterministic if absent).
+ANTHROPIC_API_KEY=sk-ant-... node packages/cli/dist/index.js review --staged --llm
+node packages/cli/dist/index.js review --staged --llm --thorough  # + discovery pass
 
 # 4. Install a pre-commit hook (non-blocking on engine error)
 node packages/cli/dist/index.js init-hooks --fail-on high
@@ -83,9 +89,10 @@ The GitHub App lives in [`packages/app`](packages/app/README.md).
 ## Status
 
 - ✅ Rust engine: diff parsing, clean-as-you-code, secrets, heuristics, cognitive-complexity delta, cross-file blast radius, external-tool adapters (graceful), pretty/JSON/SARIF output, circuit breakers. **21 tests green.**
-- ✅ CLI: `review` (pretty / `--json` / `--agent` / `--fail-on`), `init-hooks` (husky/lefthook/pre-commit).
-- ✅ GitHub App: Probot skeleton — clone → engine → batched review + suggestions + neutral check; per-repo `.splus.yml`.
-- ⏭️ Next: AST-diff noise strip · learned suppression store (pgvector) · LLM triage/explain layer · SCIP/LSP precise blast-radius tier · web dashboard + Trust Center.
+- ✅ CLI: `review` (pretty / `--json` / `--agent` / `--fail-on` / `--llm`), `init-hooks` (husky/lefthook/pre-commit).
+- ✅ GitHub App: Probot skeleton — clone → engine → (optional LLM triage) → batched review + suggestions + neutral check; per-repo `.splus.yml`.
+- ✅ **LLM layer** (`@splus/triage`): strictly downstream of the engine. Haiku-4.5 triage (keep/suppress + confidence + rationale + fix via forced tool-use, sharded, prompt-cached); opt-in Opus-4.8 discovery pass. Fails open — deterministic core works with zero inference.
+- ⏭️ Next: AST-diff noise strip · learned suppression store (pgvector) · SCIP/LSP precise blast-radius tier · incremental-on-synchronize · web dashboard + Trust Center.
 
 ## License
 

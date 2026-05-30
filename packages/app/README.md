@@ -25,6 +25,8 @@ auto_review: true       # review on open/push (false → mention-only)
 mention_only: false     # require @splus to review
 show_nits: false        # post nit-tier findings inline (default: summary only)
 fail_on: off            # off | low | medium | high | critical — when the check fails
+llm: false              # run the LLM triage layer (needs ANTHROPIC_API_KEY on the server)
+thorough: false         # with llm: also run the frontier discovery pass
 ignore_paths:
   - "packages/legacy/"
 ```
@@ -52,5 +54,7 @@ your server (use `smee.io` for local dev).
   into the summary.
 - Incremental review on `synchronize` currently re-reviews `base...head`; a
   per-PR last-reviewed-SHA store (review only new commits) is the next step.
-- The LLM triage/explain layer is intentionally **not** here yet — this pass is
-  the deterministic core.
+- The LLM triage layer (`@splus/triage`) runs when `llm: true` **and** the
+  server has `ANTHROPIC_API_KEY` — it judges/explains/suppresses the
+  deterministic candidates and posts rationales. It fails open: if the key or
+  the call is unavailable, the deterministic findings are posted as-is.

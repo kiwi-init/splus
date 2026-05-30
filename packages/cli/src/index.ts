@@ -11,10 +11,12 @@ import {
   exceedsThreshold,
   runEngine,
   runEnginePretty,
+  severityRank,
   type DiffMode,
   type Report,
   type Severity,
 } from "@splus/shared";
+import { triage, type TriagedFinding, type TriagedReport } from "@splus/triage";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 
@@ -32,6 +34,8 @@ interface ReviewOpts {
   agent?: boolean;
   failOn?: string;
   color: boolean;
+  llm?: boolean;
+  thorough?: boolean;
 }
 
 program
@@ -43,9 +47,16 @@ program
   .option("--json", "emit the raw engine JSON report")
   .option("--agent", "emit compact JSON for an AI agent to apply fixes")
   .option("--fail-on <severity>", "exit 1 if a finding is at/above this severity")
+  .option("--llm", "triage findings with the LLM layer (needs ANTHROPIC_API_KEY)")
+  .option("--thorough", "with --llm, also run the discovery pass (frontier model)")
   .option("--no-color", "disable ANSI colors")
   .action(async (opts: ReviewOpts) => {
     const mode = toMode(opts);
+
+    if (opts.llm) {
+      await reviewWithLlm(opts, mode);
+      return;
+    }
 
     // Structured output paths capture + transform engine JSON.
     if (opts.json || opts.agent) {
@@ -125,6 +136,121 @@ function toAgent(r: Report) {
         : null,
     })),
   };
+}
+
+async function reviewWithLlm(opts: ReviewOpts, mode: DiffMode): Promise<void> {
+  let report: Report;
+  try {
+    report = await runEngine({ root: opts.root, mode });
+  } catch (e) {
+    process.stderr.write(`splus: ${String(e)}\n`);
+    process.exit(2);
+  }
+
+  let triaged: TriagedReport;
+  try {
+    triaged = await triage(report, { root: opts.root, thorough: opts.thorough });
+  } catch (e) {
+    // Precision-first, but never block on the LLM being unavailable: fall back
+    // to the deterministic findings.
+    process.stderr.write(
+      `splus: LLM triage unavailable (${String(e)}). Falling back to deterministic findings.\n`,
+    );
+    const code = await runEnginePretty({
+      root: opts.root,
+      mode,
+      failOn: opts.failOn,
+      noColor: !opts.color,
+    });
+    process.exit(code);
+  }
+
+  if (opts.json) {
+    process.stdout.write(JSON.stringify(triaged, null, 2) + "\n");
+  } else if (opts.agent) {
+    process.stdout.write(JSON.stringify(toAgentTriaged(triaged), null, 2) + "\n");
+  } else {
+    process.stdout.write(renderTriagedPretty(triaged, opts.color));
+  }
+
+  if (opts.failOn) {
+    const t = severityRank(opts.failOn as Severity);
+    if (triaged.findings.some((f) => severityRank(f.severity) >= t)) process.exit(1);
+  }
+  process.exit(0);
+}
+
+function toAgentTriaged(t: TriagedReport) {
+  return {
+    summary: {
+      totalKept: t.findings.length,
+      ...t.llm,
+    },
+    findings: t.findings.map((f) => ({
+      file: f.file,
+      line: f.region.start_line,
+      severity: f.severity,
+      tier: f.tier,
+      ruleId: f.rule_id,
+      title: f.title,
+      rationale: f.rationale,
+      confidence: f.llmConfidence,
+      suggestion: f.suggestion ?? null,
+      llmOnly: f.llmOnly ?? false,
+    })),
+    suppressed: t.suppressed.map((f) => ({
+      file: f.file,
+      line: f.region.start_line,
+      ruleId: f.rule_id,
+      reason: f.rationale,
+    })),
+  };
+}
+
+function renderTriagedPretty(t: TriagedReport, color: boolean): string {
+  const paint = (code: string, s: string) => (color ? `\x1b[${code}m${s}\x1b[0m` : s);
+  const dim = (s: string) => paint("2", s);
+  const bold = (s: string) => paint("1", s);
+  const dot: Record<string, string> = {
+    critical: paint("31;1", "●"),
+    high: paint("31", "●"),
+    medium: paint("33", "●"),
+    low: paint("36", "○"),
+    info: paint("2", "○"),
+  };
+
+  const out: string[] = [];
+  out.push(bold(`\n  Splus · LLM review`) + dim(` (${t.llm.triageModel})\n`));
+  out.push(dim(`  ${t.summary.files_changed} file(s) · ${t.findings.length} kept · ${t.suppressed.length} suppressed\n`));
+  out.push(dim(`  ${"─".repeat(60)}\n`));
+
+  if (t.findings.length === 0) {
+    out.push(paint("32", "\n  ✓ Nothing a senior reviewer would flag.\n"));
+  }
+  for (const f of t.findings as TriagedFinding[]) {
+    out.push(
+      `  ${dot[f.severity] ?? "•"} ${bold(f.title)} ${dim(`[${f.rule_id}]`)}${f.llmOnly ? paint("35", " (discovered)") : ""}\n`,
+    );
+    out.push(dim(`      ${f.file}:${f.region.start_line}  ·  ${Math.round(f.llmConfidence * 100)}% confidence\n`));
+    out.push(`      ${f.rationale}\n`);
+    if (f.suggestion) out.push(paint("32", `      fix:\n${f.suggestion.split("\n").map((l) => "        " + l).join("\n")}\n`));
+  }
+
+  out.push(dim(`\n  ${"─".repeat(60)}\n`));
+  if (t.suppressed.length > 0) {
+    out.push(dim(`  suppressed by LLM (low signal): ${t.suppressed.length}\n`));
+    for (const f of t.suppressed.slice(0, 8)) {
+      out.push(dim(`    - ${f.file}:${f.region.start_line} ${f.rule_id} — ${f.rationale}\n`));
+    }
+  }
+  out.push(
+    dim(
+      `  tokens: ${t.llm.inputTokens} in (${t.llm.cachedInputTokens} cached) / ${t.llm.outputTokens} out\n`,
+    ),
+  );
+  if (t.llm.discovered > 0) out.push(dim(`  discovered by frontier pass: ${t.llm.discovered}\n`));
+  out.push("\n");
+  return out.join("");
 }
 
 // Function declaration (hoisted) so it's safe to call from the command action,

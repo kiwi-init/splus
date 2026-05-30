@@ -16,6 +16,10 @@ export interface SplusConfig {
   fail_on: "critical" | "high" | "medium" | "low" | "off";
   /** Glob-ish path prefixes to ignore entirely. */
   ignore_paths: string[];
+  /** Run the LLM triage layer (needs ANTHROPIC_API_KEY on the server). */
+  llm: boolean;
+  /** With llm, also run the frontier discovery pass. */
+  thorough: boolean;
 }
 
 export const DEFAULT_CONFIG: SplusConfig = {
@@ -24,6 +28,8 @@ export const DEFAULT_CONFIG: SplusConfig = {
   show_nits: false,
   fail_on: "off", // never block merges by default — advisory only
   ignore_paths: [],
+  llm: false, // deterministic-only by default; opt in to LLM triage
+  thorough: false,
 };
 
 export async function getConfig(ctx: Context): Promise<SplusConfig> {
