@@ -1,49 +1,36 @@
-# @splus/dashboard — web console + Trust Center
+# @splus/dashboard
 
-A zero-build SPA (Hono server, vanilla JS, hand-rolled SVG charts) with an
-oscilloscope/signal-lab aesthetic. It reads and writes the **same** per-repo
-stores the CLI and GitHub App use — one source of truth.
+The **S+** review console + public Trust Center for `dash.splus.sh`.
+**Next.js 16 (App Router) + Tailwind 4.** Same oscilloscope aesthetic as `splus.sh`.
 
-## Run
+> Renders clearly-labeled **SAMPLE** data (`lib/data.ts`) so the console is populated
+> out of the box. The real data layer — Postgres/pgvector behind the same shapes, fed by
+> the GitHub App — wires in behind these components later. Honesty is the brand: every
+> seeded metric is badged `sample`.
 
-```bash
-cargo build --release            # (only needed if you also run reviews)
-pnpm --filter @splus/dashboard build
-pnpm --filter @splus/dashboard start     # → http://localhost:4040
+```
+app/
+  layout.tsx                  shell (rail + main), fonts, metadata
+  page.tsx                    Overview — org precision, repo list
+  repo/[owner]/[name]/page.tsx  Repo detail — the precision-over-time hero chart + config + learnings
+  billing/page.tsx            Transparent per-author usage meter
+  trust/page.tsx              Public Trust Center
+  globals.css                 Tailwind import + design system
+components/  Rail, Chart, ConfigForm, Learnings, Stat
+lib/data.ts                   sample data + shapes (RepoData, Week, Billing, …)
 ```
 
-On first run it seeds clearly-labeled **sample** data (every metric is badged
-`sample` in the UI) so the console isn't empty. Force a reseed with
-`SPLUS_SEED_FORCE=1`, or `pnpm --filter @splus/dashboard seed`.
+## Local
 
-Data lives under `SPLUS_DATA_DIR` (default `./.splus-data`) — the same dir the
-GitHub App writes learnings to.
+```bash
+pnpm --filter @splus/dashboard dev    # http://localhost:3000
+```
 
-## Screens
+## Deploy to Vercel (dash.splus.sh)
 
-- **Overview** — org precision, every repo's mode/LLM state, precision + 4-week trend.
-- **Repo** — the hero chart (**signal rising / noise floor falling**), the
-  `.splus.yml` config editor, and a Learnings manager over the live suppression
-  store (restore a dismissal/mute and the finding comes back).
-- **Usage & billing** — per active PR author; bots and reviewers aren't billed.
-- **Trust Center** (`/trust`, public) — no-training guarantee, ephemeral
-  retention, self-host/BYO-LLM, provider-neutral, SOC 2 status, and the honest
-  published-precision methodology.
+1. New Project → import `kiwi-init/splus`.
+2. **Root Directory:** `packages/dashboard`
+3. **Framework Preset:** Next.js (auto-detected). Defaults are correct.
+4. Add the domain **`dash.splus.sh`** (subdomain).
 
-## API
-
-| Method | Path | |
-|---|---|---|
-| GET | `/api/overview` | repos + precision/trend |
-| GET·PUT | `/api/repos/:owner/:name/config` | `.splus.yml`-shaped config |
-| GET | `/api/repos/:owner/:name/metrics` | weekly precision / fp-rate series |
-| GET·DELETE | `/api/repos/:owner/:name/learnings` | suppression entries (delete = restore) |
-| GET | `/api/billing` | transparent per-author meter |
-| GET | `/api/trust` | Trust Center facts |
-
-## Roadmap
-
-- Auth (GitHub OAuth) + multi-org.
-- Write config back to the repo's `.splus.yml` (PR) or the hosted DB instead of
-  the local file store.
-- Swap `FileSuppressionStore` for `PgVectorSuppressionStore` in production.
+No `vercel.json` needed — Vercel detects Next.js and builds it zero-config.
