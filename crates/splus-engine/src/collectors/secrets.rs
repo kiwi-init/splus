@@ -222,6 +222,7 @@ mod tests {
         ReviewContext {
             root: PathBuf::from("."),
             mode: DiffMode::Working,
+            scip: None,
             files: vec![ChangedFile {
                 path: path.to_string(),
                 added,

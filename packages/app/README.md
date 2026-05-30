@@ -54,6 +54,10 @@ your server (use `smee.io` for local dev).
   into the summary.
 - Incremental review on `synchronize` currently re-reviews `base...head`; a
   per-PR last-reviewed-SHA store (review only new commits) is the next step.
+- **Precise blast radius:** the engine auto-detects `index.scip` /
+  `.splus-cache/index.scip` in the cloned repo and uses compiler-grade
+  references when present. Generate it out-of-band (`splus index` in CI) and
+  cache it per default-branch commit; the runner just needs to drop it in place.
 - The LLM triage layer (`@splus/triage`) runs when `llm: true` **and** the
   server has `ANTHROPIC_API_KEY` — it judges/explains/suppresses the
   deterministic candidates and posts rationales. It fails open: if the key or

@@ -40,6 +40,10 @@ struct ReviewArgs {
     /// Review against a base ref (PR-style `base...HEAD`).
     #[arg(long)]
     base: Option<String>,
+    /// Path to a SCIP index for the precise blast-radius tier (else auto-detected
+    /// from index.scip / .splus-cache/index.scip).
+    #[arg(long)]
+    scip: Option<PathBuf>,
     /// Output format: pretty | json | sarif.
     #[arg(long, default_value = "pretty")]
     format: String,
@@ -78,7 +82,9 @@ fn run_review(args: ReviewArgs) -> Result<i32> {
         DiffMode::Working
     };
 
-    let report = Engine::new(args.root.clone(), mode).review()?;
+    let mut engine = Engine::new(args.root.clone(), mode);
+    engine.scip_path = args.scip.clone();
+    let report = engine.review()?;
 
     let color = !args.no_color && std::env::var_os("NO_COLOR").is_none();
     let theme = Theme { color };

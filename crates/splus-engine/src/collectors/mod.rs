@@ -17,6 +17,8 @@ pub struct ReviewContext {
     pub root: PathBuf,
     pub mode: DiffMode,
     pub files: Vec<ChangedFile>,
+    /// Loaded SCIP index for the precise blast-radius tier, if available.
+    pub scip: Option<crate::analysis::scip::ScipGraph>,
 }
 
 impl ReviewContext {

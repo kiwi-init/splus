@@ -20,11 +20,28 @@ pub struct Engine {
     pub mode: DiffMode,
     /// When true, run the (heavier) tree-sitter analysis tier.
     pub deep: bool,
+    /// Explicit path to a SCIP index for the precise blast-radius tier.
+    /// When None, the engine auto-detects `index.scip` / `.splus-cache/index.scip`.
+    pub scip_path: Option<PathBuf>,
 }
 
 impl Engine {
     pub fn new(root: PathBuf, mode: DiffMode) -> Engine {
-        Engine { root, mode, deep: true }
+        Engine { root, mode, deep: true, scip_path: None }
+    }
+
+    /// Resolve the SCIP index path: explicit override, else conventional locations.
+    fn resolve_scip(&self) -> Option<PathBuf> {
+        if let Some(p) = &self.scip_path {
+            return p.exists().then(|| p.clone());
+        }
+        for cand in ["index.scip", ".splus-cache/index.scip"] {
+            let p = self.root.join(cand);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+        None
     }
 
     pub fn review(&self) -> Result<Report> {
@@ -54,10 +71,20 @@ impl Engine {
             run_deep = false;
         }
 
+        // Load the SCIP precise tier if an index is present.
+        let scip = self.resolve_scip().and_then(|p| crate::analysis::scip::ScipGraph::load(&p));
+        if let Some(g) = &scip {
+            notes.push(format!(
+                "SCIP precise tier active: {} indexed document(s) — cross-file impact is compiler-grade.",
+                g.document_count
+            ));
+        }
+
         let ctx = ReviewContext {
             root: self.root.clone(),
             mode: self.mode.clone(),
             files,
+            scip,
         };
 
         // Collector set. Fast collectors always run; deep (tree-sitter) tier is

@@ -23,6 +23,7 @@ import {
   FileSuppressionStore,
   type SuppressedFinding,
 } from "@splus/suppression";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 
@@ -149,6 +150,31 @@ program
     const store = new FileSuppressionStore(learningsPath(opts.root));
     await store.record({ fingerprint: "", rule_id: ruleId, text: ruleId, scope: "rule", signal: "muted" });
     console.log(`Muted rule '${ruleId}' for this repo. Splus will stop flagging it.`);
+  });
+
+program
+  .command("index")
+  .description("Generate a SCIP index for the precise (compiler-grade) blast-radius tier")
+  .option("--root <dir>", "repository root", ".")
+  .action((opts: { root: string }) => {
+    const root = opts.root;
+    mkdirSync(join(root, ".splus-cache"), { recursive: true });
+    const out = join(".splus-cache", "index.scip");
+    let indexer: string;
+    if (existsSync(join(root, "tsconfig.json"))) indexer = "@sourcegraph/scip-typescript";
+    else if (existsSync(join(root, "pyproject.toml")) || existsSync(join(root, "setup.py"))) indexer = "@sourcegraph/scip-python";
+    else {
+      console.error("No tsconfig.json or pyproject.toml found — nothing to index here.");
+      process.exit(1);
+    }
+    console.log(`Indexing with ${indexer} → ${out} …`);
+    const r = spawnSync("npx", ["--yes", indexer, "index", "--output", out], { cwd: root, stdio: "inherit" });
+    if (r.status === 0) {
+      console.log(`✓ ${join(root, out)} — \`splus review\` will auto-detect it (precise blast radius).`);
+    } else {
+      console.error("Indexer failed. Ensure the project's deps are installed and it typechecks. (This is meant for CI, not the hot path.)");
+      process.exit(r.status ?? 1);
+    }
   });
 
 program
