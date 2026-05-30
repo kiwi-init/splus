@@ -1,0 +1,20 @@
+{
+  "name": "@splus/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "splus": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@splus/shared": "workspace:*",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@types/node": "^22.0.0"
+  }
+}

@@ -1,0 +1,29 @@
+[package]
+name = "splus-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Splus deterministic code-review engine: diff-scoped, clean-as-you-code, zero-inference."
+
+[[bin]]
+name = "splus-engine"
+path = "src/main.rs"
+
+[lib]
+name = "splus_engine"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+
+# Tree-sitter analysis tier (symbols, cognitive complexity, blast radius).
+tree-sitter = "0.25"
+tree-sitter-typescript = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-python = "0.23"
+
+[dev-dependencies]

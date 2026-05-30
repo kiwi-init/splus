@@ -1,0 +1,21 @@
+{
+  "name": "@splus/app",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "probot run ./dist/index.js"
+  },
+  "dependencies": {
+    "@splus/shared": "workspace:*",
+    "js-yaml": "^4.1.0",
+    "probot": "^13.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@types/node": "^22.0.0",
+    "@types/js-yaml": "^4.0.9"
+  }
+}

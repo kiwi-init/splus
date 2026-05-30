@@ -1,0 +1,23 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+.pnpm-store/
+
+# Env / secrets
+.env
+.env.local
+*.pem
+private-key*.pem
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Splus runtime
+.splus-cache/
