@@ -7,12 +7,35 @@
  */
 import { runEngine, type Finding, type Report } from "@splus/shared";
 import { triage } from "@splus/triage";
+import { applySuppression, FileSuppressionStore } from "@splus/suppression";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Context } from "probot";
 import type { SplusConfig } from "./config.js";
+
+/** Per-repo learnings store (same shape the CLI/dashboard write). */
+export function repoStore(owner: string, repo: string): FileSuppressionStore {
+  const base = process.env.SPLUS_DATA_DIR ?? join(process.cwd(), ".splus-data");
+  const file = `${owner}__${repo}.json`.replace(/[^\w.@-]/g, "_");
+  return new FileSuppressionStore(join(base, file));
+}
+
+function recount(report: Report, suppressedCount: number): Report {
+  const c = (t: string) => report.findings.filter((f) => f.tier === t).length;
+  return {
+    ...report,
+    summary: {
+      ...report.summary,
+      findings_total: report.findings.length,
+      must_fix: c("must-fix"),
+      concern: c("concern"),
+      nit: c("nit"),
+      suppressed: suppressedCount,
+    },
+  };
+}
 
 /** GitHub caps the practical number of inline comments; keep reviews focused. */
 const MAX_INLINE_COMMENTS = 40;
@@ -35,10 +58,23 @@ export async function reviewPR(
   try {
     cloneAtHead(dir, token, owner, repo, pr);
 
-    const report = await runEngine({
+    const rawReport = await runEngine({
       root: dir,
       mode: { kind: "base", ref: pr.base.sha },
     });
+
+    // Learned suppression (same store the CLI/dashboard write): drop findings the
+    // team already dismissed/muted BEFORE spending any LLM tokens on them.
+    let report = rawReport;
+    try {
+      const sup = await applySuppression(rawReport, repoStore(owner, repo));
+      if (sup.suppressed.length) {
+        ctx.log?.info?.(`Splus suppressed ${sup.suppressed.length} finding(s) via learnings`);
+      }
+      report = recount({ ...rawReport, findings: sup.kept }, sup.suppressed.length);
+    } catch (err) {
+      ctx.log?.warn?.(`Splus suppression unavailable: ${String(err)}`);
+    }
 
     // The LLM layer is consistent with the CLI: it only RE-ranks/suppresses and
     // explains the deterministic candidates. Opt-in + key-gated; never blocks.

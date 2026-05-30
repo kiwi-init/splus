@@ -13,6 +13,9 @@ importers:
       '@splus/shared':
         specifier: workspace:*
         version: link:../shared
+      '@splus/suppression':
+        specifier: workspace:*
+        version: link:../suppression
       '@splus/triage':
         specifier: workspace:*
         version: link:../triage
@@ -38,6 +41,9 @@ importers:
       '@splus/shared':
         specifier: workspace:*
         version: link:../shared
+      '@splus/suppression':
+        specifier: workspace:*
+        version: link:../suppression
       '@splus/triage':
         specifier: workspace:*
         version: link:../triage
@@ -57,6 +63,19 @@ importers:
       zod:
         specifier: ^3.23.8
         version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/suppression:
+    dependencies:
+      '@splus/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

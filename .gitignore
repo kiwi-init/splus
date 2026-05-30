@@ -21,3 +21,4 @@ private-key*.pem
 
 # Splus runtime
 .splus-cache/
+.splus-data/

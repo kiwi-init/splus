@@ -58,3 +58,7 @@ your server (use `smee.io` for local dev).
   server has `ANTHROPIC_API_KEY` — it judges/explains/suppresses the
   deterministic candidates and posts rationales. It fails open: if the key or
   the call is unavailable, the deterministic findings are posted as-is.
+- **Learned suppression** runs before everything else: findings the team
+  dismissed/muted are dropped before any LLM spend. Teach it from a PR:
+  `@splus mute <ruleId>`. Learnings persist per-repo under `SPLUS_DATA_DIR`
+  (file backend) — swap in the `PgVectorSuppressionStore` for multi-tenant hosting.

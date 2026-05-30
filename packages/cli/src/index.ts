@@ -10,13 +10,19 @@ import { Command } from "commander";
 import {
   exceedsThreshold,
   runEngine,
-  runEnginePretty,
   severityRank,
   type DiffMode,
+  type Finding,
   type Report,
   type Severity,
 } from "@splus/shared";
 import { triage, type TriagedFinding, type TriagedReport } from "@splus/triage";
+import {
+  applySuppression,
+  candidateText,
+  FileSuppressionStore,
+  type SuppressedFinding,
+} from "@splus/suppression";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 
@@ -36,6 +42,7 @@ interface ReviewOpts {
   color: boolean;
   llm?: boolean;
   thorough?: boolean;
+  learn?: boolean;
 }
 
 program
@@ -49,40 +56,47 @@ program
   .option("--fail-on <severity>", "exit 1 if a finding is at/above this severity")
   .option("--llm", "triage findings with the LLM layer (needs ANTHROPIC_API_KEY)")
   .option("--thorough", "with --llm, also run the discovery pass (frontier model)")
+  .option("--no-learn", "ignore the learned suppression store for this run")
   .option("--no-color", "disable ANSI colors")
   .action(async (opts: ReviewOpts) => {
     const mode = toMode(opts);
 
-    if (opts.llm) {
-      await reviewWithLlm(opts, mode);
-      return;
+    let report: Report;
+    try {
+      report = await runEngine({ root: opts.root, mode });
+    } catch (e) {
+      process.stderr.write(`splus: ${String(e)}\n`);
+      process.exit(2);
     }
 
-    // Structured output paths capture + transform engine JSON.
-    if (opts.json || opts.agent) {
+    // Learned suppression (on by default): drop findings the team already
+    // dismissed (exact, rule-mute, or semantically similar). Best-effort.
+    let suppressed: SuppressedFinding[] = [];
+    if (opts.learn !== false) {
       try {
-        const report = await runEngine({ root: opts.root, mode });
-        process.stdout.write(
-          JSON.stringify(opts.agent ? toAgent(report) : report, null, 2) + "\n",
-        );
-        if (opts.failOn && exceedsThreshold(report, opts.failOn as Severity)) {
-          process.exit(1);
-        }
-        process.exit(0);
-      } catch (e) {
-        process.stderr.write(`splus: ${String(e)}\n`);
-        process.exit(2); // engine error → non-blocking by convention
+        const store = new FileSuppressionStore(learningsPath(opts.root));
+        const r = await applySuppression(report, store);
+        report = withFindings(report, r.kept, r.suppressed.length);
+        suppressed = r.suppressed;
+      } catch {
+        /* never block a review on the suppression store */
       }
     }
 
-    // Default: stream the engine's pretty output and propagate its exit code.
-    const code = await runEnginePretty({
-      root: opts.root,
-      mode,
-      failOn: opts.failOn,
-      noColor: !opts.color,
-    });
-    process.exit(code);
+    if (opts.llm) {
+      await reviewWithLlm(opts, report);
+      return;
+    }
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+      finish(report, opts);
+    }
+    if (opts.agent) {
+      process.stdout.write(JSON.stringify(toAgent(report), null, 2) + "\n");
+      finish(report, opts);
+    }
+    process.stdout.write(renderDeterministicPretty(report, suppressed, opts.color));
+    finish(report, opts);
   });
 
 program
@@ -92,6 +106,66 @@ program
   .option("--fail-on <severity>", "severity that blocks the commit", "high")
   .action((opts: { root: string; failOn: string }) => {
     initHooks(opts.root, opts.failOn);
+  });
+
+program
+  .command("dismiss <fingerprint>")
+  .description("Teach Splus to stop flagging a specific finding (by its id)")
+  .option("--root <dir>", "repository root", ".")
+  .option("--staged", "look up the finding in staged changes")
+  .option("--base <ref>", "look up the finding against a base ref")
+  .action(async (fingerprint: string, opts: { root: string; staged?: boolean; base?: string }) => {
+    const mode: DiffMode = opts.base
+      ? { kind: "base", ref: opts.base }
+      : opts.staged
+        ? { kind: "staged" }
+        : { kind: "working" };
+    const store = new FileSuppressionStore(learningsPath(opts.root));
+    let found: Finding | undefined;
+    try {
+      const report = await runEngine({ root: opts.root, mode });
+      found = report.findings.find((f) => f.id === fingerprint);
+    } catch {
+      /* fall through to exact-only dismissal */
+    }
+    await store.record({
+      fingerprint,
+      rule_id: found?.rule_id ?? "unknown",
+      text: found ? candidateText(found) : "",
+      scope: "fingerprint",
+    });
+    console.log(
+      found
+        ? `Dismissed ${fingerprint} (${found.rule_id}). Splus won't flag it (or close variants) again on this repo.`
+        : `Dismissed ${fingerprint} (exact match only — not found in the current diff).`,
+    );
+  });
+
+program
+  .command("mute <ruleId>")
+  .description("Mute an entire rule for this repo (e.g. hygiene.python-print)")
+  .option("--root <dir>", "repository root", ".")
+  .action(async (ruleId: string, opts: { root: string }) => {
+    const store = new FileSuppressionStore(learningsPath(opts.root));
+    await store.record({ fingerprint: "", rule_id: ruleId, text: ruleId, scope: "rule", signal: "muted" });
+    console.log(`Muted rule '${ruleId}' for this repo. Splus will stop flagging it.`);
+  });
+
+program
+  .command("learnings")
+  .description("List what Splus has learned to suppress on this repo")
+  .option("--root <dir>", "repository root", ".")
+  .action(async (opts: { root: string }) => {
+    const store = new FileSuppressionStore(learningsPath(opts.root));
+    const entries = await store.list();
+    if (!entries.length) {
+      console.log("No learnings yet. Use `splus dismiss <id>` or `splus mute <rule>`.");
+      return;
+    }
+    for (const e of entries) {
+      const head = e.scope === "rule" ? `[rule] ${e.rule_id}` : `[fp]   ${e.fingerprint} (${e.rule_id})`;
+      console.log(`${head}  — ${e.signal} ${e.at}`);
+    }
   });
 
 program.parseAsync().catch((e) => {
@@ -138,31 +212,19 @@ function toAgent(r: Report) {
   };
 }
 
-async function reviewWithLlm(opts: ReviewOpts, mode: DiffMode): Promise<void> {
-  let report: Report;
-  try {
-    report = await runEngine({ root: opts.root, mode });
-  } catch (e) {
-    process.stderr.write(`splus: ${String(e)}\n`);
-    process.exit(2);
-  }
-
+async function reviewWithLlm(opts: ReviewOpts, report: Report): Promise<void> {
   let triaged: TriagedReport;
   try {
+    // The LLM only sees candidates that survived deterministic suppression.
     triaged = await triage(report, { root: opts.root, thorough: opts.thorough });
   } catch (e) {
     // Precision-first, but never block on the LLM being unavailable: fall back
-    // to the deterministic findings.
+    // to the (already suppression-filtered) deterministic findings.
     process.stderr.write(
       `splus: LLM triage unavailable (${String(e)}). Falling back to deterministic findings.\n`,
     );
-    const code = await runEnginePretty({
-      root: opts.root,
-      mode,
-      failOn: opts.failOn,
-      noColor: !opts.color,
-    });
-    process.exit(code);
+    process.stdout.write(renderDeterministicPretty(report, [], opts.color));
+    finish(report, opts);
   }
 
   if (opts.json) {
@@ -178,6 +240,72 @@ async function reviewWithLlm(opts: ReviewOpts, mode: DiffMode): Promise<void> {
     if (triaged.findings.some((f) => severityRank(f.severity) >= t)) process.exit(1);
   }
   process.exit(0);
+}
+
+function finish(report: Report, opts: ReviewOpts): never {
+  if (opts.failOn && exceedsThreshold(report, opts.failOn as Severity)) process.exit(1);
+  process.exit(0);
+}
+
+function learningsPath(root: string): string {
+  return join(root, ".splus-cache", "learnings.json");
+}
+
+function withFindings(report: Report, kept: Finding[], suppressedCount: number): Report {
+  const count = (t: string) => kept.filter((f) => f.tier === t).length;
+  return {
+    ...report,
+    findings: kept,
+    summary: {
+      ...report.summary,
+      findings_total: kept.length,
+      must_fix: count("must-fix"),
+      concern: count("concern"),
+      nit: count("nit"),
+      suppressed: suppressedCount,
+    },
+  };
+}
+
+function renderDeterministicPretty(report: Report, suppressed: SuppressedFinding[], color: boolean): string {
+  const paint = (c: string, s: string) => (color ? `\x1b[${c}m${s}\x1b[0m` : s);
+  const dim = (s: string) => paint("2", s);
+  const bold = (s: string) => paint("1", s);
+  const dot: Record<string, string> = {
+    critical: paint("31;1", "●"), high: paint("31", "●"), medium: paint("33", "●"),
+    low: paint("36", "○"), info: paint("2", "○"),
+  };
+  const s = report.summary;
+  const out: string[] = [];
+  out.push(bold("\n  Splus") + dim(` v${report.version}\n`));
+  out.push(dim(`  ${s.files_changed} file(s) · ${s.added_lines} added line(s) · clean-as-you-code\n`));
+  out.push(dim(`  ${"─".repeat(60)}\n`));
+  if (report.findings.length === 0) out.push(paint("32", "\n  ✓ No issues on changed lines.\n"));
+  for (const tier of ["must-fix", "concern", "nit"]) {
+    const group = report.findings.filter((f) => f.tier === tier);
+    if (!group.length) continue;
+    const code = tier === "must-fix" ? "31;1" : tier === "concern" ? "33" : "36";
+    out.push(`\n  ${bold(paint(code, tier))}\n`);
+    for (const f of group) {
+      out.push(`  ${dot[f.severity] ?? "•"} ${bold(f.title)} ${dim(`[${f.rule_id}]`)}\n`);
+      out.push(dim(`      ${f.file}:${f.region.start_line}  ·  ${Math.round(f.confidence * 100)}% confidence  ·  ${f.anchor.detail}\n`));
+      out.push(`      ${f.message}\n`);
+      if (f.blast_radius) {
+        out.push(paint("35", `      ⮑ blast radius: ${f.blast_radius.direct_callers} direct caller(s) across ${f.blast_radius.files_affected.length} file(s) · ${Math.round(f.blast_radius.resolution_confidence * 100)}% res. confidence\n`));
+      }
+      if (f.suggestion) out.push(paint("32", `      fix: ${f.suggestion}\n`));
+    }
+  }
+  out.push(dim(`\n  ${"─".repeat(60)}\n`));
+  out.push(`  ${paint("31;1", String(s.must_fix))} must-fix · ${paint("33", String(s.concern))} concern · ${paint("36", String(s.nit))} nit\n`);
+  if (suppressed.length > 0) {
+    out.push(dim(`  ${suppressed.length} suppressed by learnings (`));
+    const kinds = suppressed.reduce<Record<string, number>>((a, x) => ((a[x.suppressionKind ?? "?"] = (a[x.suppressionKind ?? "?"] ?? 0) + 1), a), {});
+    out.push(dim(Object.entries(kinds).map(([k, v]) => `${v} ${k}`).join(", ") + ")\n"));
+  }
+  for (const note of s.notes) out.push(paint("33", `  ⚠ ${note}\n`));
+  out.push("\n");
+  return out.join("");
 }
 
 function toAgentTriaged(t: TriagedReport) {

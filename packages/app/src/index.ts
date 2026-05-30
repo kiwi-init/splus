@@ -9,7 +9,7 @@
  */
 import type { Probot } from "probot";
 import { getConfig } from "./config.js";
-import { reviewPR } from "./review.js";
+import { repoStore, reviewPR } from "./review.js";
 
 export default (app: Probot): void => {
   app.on(
@@ -34,6 +34,25 @@ export default (app: Probot): void => {
     const { comment, issue } = ctx.payload;
     if (!issue.pull_request) return; // not a PR
     if (!/@splus\b/i.test(comment.body)) return; // not addressed to us
+
+    // Learning command: `@splus mute <ruleId>` (or `dismiss`) teaches the repo.
+    const muteCmd = comment.body.match(/@splus\s+(?:mute|dismiss)\s+([\w.\-]+)/i);
+    if (muteCmd) {
+      const ruleId = muteCmd[1]!;
+      const { owner, repo } = ctx.repo();
+      await repoStore(owner, repo).record({
+        fingerprint: "",
+        rule_id: ruleId,
+        text: ruleId,
+        scope: "rule",
+        signal: "muted",
+      });
+      await ctx.octokit.issues.createComment(
+        ctx.repo({ issue_number: issue.number, body: `🔇 Muted \`${ruleId}\` for this repo. Splus will stop flagging it.` }),
+      );
+      return;
+    }
+
     const cfg = await getConfig(ctx);
     const { data: pr } = await ctx.octokit.pulls.get(
       ctx.repo({ pull_number: issue.number }),

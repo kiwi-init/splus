@@ -31,8 +31,9 @@ Splus/
 │       └── render.rs        #   pretty · JSON · SARIF
 ├── packages/
 │   ├── shared/              # canonical Finding model (TS, mirrors Rust) + engine runner
+│   ├── suppression/        # learned per-repo noise filter (exact · rule · semantic) + pgvector
 │   ├── triage/             # LLM layer — judge/explain/suppress + fix (downstream of the engine)
-│   ├── cli/                 # `splus review` / `splus init-hooks`
+│   ├── cli/                 # `splus review` / `dismiss` / `mute` / `learnings` / `init-hooks`
 │   └── app/                 # `@splus` GitHub App (Probot)
 ├── REPORT.md                # strategy, architecture, MVP plan
 └── docs/RESEARCH.md         # competitive + tooling intelligence
@@ -75,6 +76,11 @@ node packages/cli/dist/index.js review --staged --llm --thorough  # + discovery 
 
 # 4. Install a pre-commit hook (non-blocking on engine error)
 node packages/cli/dist/index.js init-hooks --fail-on high
+
+# 5. Teach it — it gets quieter over time (per-repo, exact + rule + semantic)
+node packages/cli/dist/index.js dismiss <finding-id>   # stop flagging this + close variants
+node packages/cli/dist/index.js mute hygiene.python-print  # mute a whole rule
+node packages/cli/dist/index.js learnings              # what it has learned
 ```
 
 Or run the engine directly:
@@ -92,7 +98,8 @@ The GitHub App lives in [`packages/app`](packages/app/README.md).
 - ✅ CLI: `review` (pretty / `--json` / `--agent` / `--fail-on` / `--llm`), `init-hooks` (husky/lefthook/pre-commit).
 - ✅ GitHub App: Probot skeleton — clone → engine → (optional LLM triage) → batched review + suggestions + neutral check; per-repo `.splus.yml`.
 - ✅ **LLM layer** (`@splus/triage`): strictly downstream of the engine. Haiku-4.5 triage (keep/suppress + confidence + rationale + fix via forced tool-use, sharded, prompt-cached); opt-in Opus-4.8 discovery pass. Fails open — deterministic core works with zero inference.
-- ⏭️ Next: AST-diff noise strip · learned suppression store (pgvector) · SCIP/LSP precise blast-radius tier · incremental-on-synchronize · web dashboard + Trust Center.
+- ✅ **Learned suppression** (`@splus/suppression`): per-repo noise filter — exact (dismissed fingerprint), rule-mute, and **semantic** (cosine over a dependency-free feature-hash embedder; pgvector backend for hosted). Dismiss one finding → its whole class goes quiet. Wired into the CLI (`dismiss`/`mute`/`learnings`) and the App (`@splus mute <rule>`), applied before LLM spend.
+- ⏭️ Next: AST-diff noise strip · SCIP/LSP precise blast-radius tier · incremental-on-synchronize · richer transformers embedder · web dashboard + Trust Center.
 
 ## License
 
