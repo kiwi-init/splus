@@ -16,7 +16,7 @@ export default function Home() {
       {/* nav */}
       <header className="nav">
         <a className="brand" href="#top" aria-label="S+ home">
-          <svg className="brand-mark" width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+          <svg className="brand-mark" width="24" height="24" viewBox="0 0 26 26" aria-hidden="true">
             <path d="M2 13 H7 L9.5 6 L13.5 20 L16.5 13 H24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <span className="brand-word">S<span className="brand-plus">+</span></span>
@@ -37,7 +37,7 @@ export default function Home() {
       <main id="top">
         {/* hero */}
         <section className="hero">
-          <div className="hero-copy reveal">
+          <div className="hero-copy">
             <p className="eyebrow"><span className="blip" />Precision-first code review</p>
             <h1 className="display">
               Only the comments<br />
@@ -60,37 +60,19 @@ export default function Home() {
             </p>
           </div>
 
-          <figure className="scope reveal" aria-label="An oscilloscope showing a strong signal trace above a decaying noise floor">
+          <figure className="scope" aria-label="An ASCII signalscope: a strong signal wave above a flat noise floor">
             <div className="scope-frame">
               <div className="scope-head">
                 <span className="scope-led" />
-                <span className="scope-label">SIGNAL / NOISE</span>
+                SIGNAL / NOISE
                 <span className="scope-readout" data-snr="">SNR 19.0 dB</span>
               </div>
-              <svg className="scope-svg" viewBox="0 0 640 320" preserveAspectRatio="none" role="img" aria-label="signal over noise">
-                <defs>
-                  <filter id="phosphor" x="-20%" y="-20%" width="140%" height="140%">
-                    <feGaussianBlur stdDeviation="2.2" result="b" />
-                    <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-                  </filter>
-                  <linearGradient id="signalfade" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0" stopColor="var(--signal)" stopOpacity=".25" />
-                    <stop offset="1" stopColor="var(--signal)" stopOpacity="1" />
-                  </linearGradient>
-                </defs>
-                <g className="scope-grid" stroke="currentColor" strokeWidth="1">
-                  <line x1="0" y1="80" x2="640" y2="80" /><line x1="0" y1="160" x2="640" y2="160" />
-                  <line x1="0" y1="240" x2="640" y2="240" />
-                  <line x1="160" y1="0" x2="160" y2="320" /><line x1="320" y1="0" x2="320" y2="320" />
-                  <line x1="480" y1="0" x2="480" y2="320" />
-                </g>
-                <path className="trace-noise" d="M-10,282 L20,272 L36,288 L56,270 L72,289 L96,275 L120,285 L150,278 L186,284 L222,281 L262,283 L300,281 L350,282 L420,281 L520,281 L660,281" fill="none" stroke="var(--noise)" strokeWidth="1.6" strokeLinejoin="round" />
-                <path className="trace-signal" d="M-10,160 C40,90 90,90 140,160 C190,230 240,230 290,160 C340,90 390,90 440,160 C490,230 540,230 590,160 C620,120 650,140 660,150" fill="none" stroke="url(#signalfade)" strokeWidth="2.6" strokeLinecap="round" filter="url(#phosphor)" />
-              </svg>
-              <div className="scope-sweep" aria-hidden="true" />
+              <pre className="scope-wave" aria-hidden="true">▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▁▂▃▄▅▆▇█▇▆▅▄▃▂▁▁▂▃▄▅▆▇█▇▆▅▄▃▂▁</pre>
+              <div className="scope-grid-row" aria-hidden="true">└─────────┴─────────┴─────────┴─────────┴─────────┴────────┘</div>
+              <pre className="scope-noise" aria-hidden="true">·  ·   ·  · ·    ·   ·  ·  ·    · ·   ·  ·   ·  ·  ·   · ·  ·  ·</pre>
               <div className="scope-foot">
-                <span className="sig"><i style={{ background: "var(--signal)" }} />real findings</span>
-                <span className="sig"><i style={{ background: "var(--noise)" }} />false positives</span>
+                <span className="sig"><i style={{ background: "var(--ink)" }} />signal — real findings</span>
+                <span className="sig"><i style={{ background: "var(--noise)" }} />noise — false positives</span>
                 <span className="scope-foot-r">clean-as-you-code · diff-scoped</span>
               </div>
             </div>
@@ -179,7 +161,7 @@ args:    ["-y", "@splus/mcp"]`}</code></pre>
             <svg className="chart-svg" viewBox="0 0 720 380" role="img" aria-label="Precision rising toward 95% while false-positive rate falls toward 5% as S+ learns the repo">
               <defs>
                 <linearGradient id="gap" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stopColor="var(--signal)" stopOpacity=".16" />
+                  <stop offset="0" stopColor="var(--signal)" stopOpacity=".10" />
                   <stop offset="1" stopColor="var(--signal)" stopOpacity="0" />
                 </linearGradient>
               </defs>
@@ -202,10 +184,10 @@ args:    ["-y", "@splus/mcp"]`}</code></pre>
               <path className="line-noise" d="M60,214 L137,233 L215,250 L292,267 L370,281 L447,292 L525,300 L602,303 L680,306" fill="none" stroke="var(--noise)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
               <path className="line-signal" d="M60,146 L137,130 L215,113 L292,96 L370,82 L447,71 L525,62 L602,57 L680,54" fill="none" stroke="var(--signal)" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
 
-              <circle className="dot-signal" cx="680" cy="54" r="4.5" fill="var(--signal)" />
+              <circle className="dot-signal" cx="680" cy="54" r="4.5" fill="var(--accent)" />
               <circle className="dot-noise" cx="680" cy="306" r="4.5" fill="var(--noise)" />
 
-              <text className="lab lab-signal" x="676" y="40" textAnchor="end" fill="var(--signal)">precision 95%</text>
+              <text className="lab lab-signal" x="676" y="40" textAnchor="end" fill="var(--accent)">precision 95%</text>
               <text className="lab lab-noise" x="676" y="326" textAnchor="end" fill="var(--noise)">false positives 5%</text>
               <text className="chart-x" x="370" y="360" textAnchor="middle" fill="currentColor">reviews over time →</text>
             </svg>
@@ -283,9 +265,9 @@ args:    ["-y", "@splus/mcp"]`}</code></pre>
                 <span className="node-tag tag-changed">changed</span>
               </div>
               <svg className="graph-edges" viewBox="0 0 360 220" aria-hidden="true">
-                <path d="M180,52 C180,100 96,100 96,150" fill="none" stroke="var(--signal)" strokeWidth="1.5" />
-                <path d="M180,52 C180,100 270,100 270,150" fill="none" stroke="var(--signal)" strokeWidth="1.5" />
-                <path d="M180,52 C180,118 180,118 180,150" fill="none" stroke="var(--noise)" strokeWidth="1.5" strokeDasharray="4 4" />
+                <path d="M180,52 C180,100 96,100 96,150" fill="none" stroke="var(--ink-dim)" strokeWidth="1.5" />
+                <path d="M180,52 C180,100 270,100 270,150" fill="none" stroke="var(--ink-dim)" strokeWidth="1.5" />
+                <path d="M180,52 C180,118 180,118 180,150" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeDasharray="4 4" />
               </svg>
               <div className="node-row">
                 <div className="node node-caller"><span className="node-file">api/login.ts</span><span className="node-sym">handleLogin()</span></div>

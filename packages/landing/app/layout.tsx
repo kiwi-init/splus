@@ -1,17 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const mono = IBM_Plex_Mono({
+const mono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "500", "600", "700", "800"],
   variable: "--font-mono",
-  display: "swap",
-});
-const sans = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-sans",
   display: "swap",
 });
 
@@ -33,14 +27,11 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image" },
 };
 
-export const viewport: Viewport = {
-  themeColor: "#070a09",
-};
+export const viewport: Viewport = { themeColor: "#0a0a0a" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  // `js` enables the reveal-on-scroll hidden state before paint (no flash).
   return (
-    <html lang="en" className={`js ${mono.variable} ${sans.variable}`}>
+    <html lang="en" className={`js ${mono.variable}`}>
       <body>{children}</body>
     </html>
   );
