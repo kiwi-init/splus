@@ -40,6 +40,9 @@ struct ReviewArgs {
     /// Review against a base ref (PR-style `base...HEAD`).
     #[arg(long)]
     base: Option<String>,
+    /// Review the entire committed repository (every file as newly added).
+    #[arg(long, conflicts_with_all = ["base", "staged"])]
+    all: bool,
     /// Path to a SCIP index for the precise blast-radius tier (else auto-detected
     /// from index.scip / .splus-cache/index.scip).
     #[arg(long)]
@@ -74,7 +77,9 @@ fn run_review(args: ReviewArgs) -> Result<i32> {
         anyhow::bail!("{} is not a git repository", args.root.display());
     }
 
-    let mode = if let Some(b) = &args.base {
+    let mode = if args.all {
+        DiffMode::All
+    } else if let Some(b) = &args.base {
         DiffMode::Base(b.clone())
     } else if args.staged {
         DiffMode::Staged

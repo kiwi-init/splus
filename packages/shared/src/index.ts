@@ -100,7 +100,8 @@ export type Report = z.infer<typeof Report>;
 export type DiffMode =
   | { kind: "staged" }
   | { kind: "working" }
-  | { kind: "base"; ref: string };
+  | { kind: "base"; ref: string }
+  | { kind: "all" };
 
 export interface RunOptions {
   root: string;
@@ -138,6 +139,8 @@ function modeArgs(mode: DiffMode): string[] {
       return [];
     case "base":
       return ["--base", mode.ref];
+    case "all":
+      return ["--all"];
   }
 }
 

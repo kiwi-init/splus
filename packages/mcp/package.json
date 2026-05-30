@@ -1,0 +1,27 @@
+{
+  "name": "@splus/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Splus MCP server — exposes the deterministic review engine as tools your local coding agent (Claude Code, Codex) can call. The free, local tier.",
+  "bin": {
+    "splus-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@splus/shared": "workspace:*",
+    "@splus/suppression": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.2"
+  }
+}

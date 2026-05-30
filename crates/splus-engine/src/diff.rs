@@ -8,6 +8,9 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
 
+/// Git's canonical empty tree — diffing against it makes every file look added.
+pub const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
 /// What slice of history to review.
 #[derive(Debug, Clone)]
 pub enum DiffMode {
@@ -17,6 +20,8 @@ pub enum DiffMode {
     Working,
     /// `git diff <base>...HEAD` — PR-style (merge-base of base and HEAD).
     Base(String),
+    /// The entire committed repository, reviewed as if newly added.
+    All,
 }
 
 impl DiffMode {
@@ -26,6 +31,7 @@ impl DiffMode {
         match self {
             DiffMode::Staged | DiffMode::Working => "HEAD".to_string(),
             DiffMode::Base(b) => b.clone(),
+            DiffMode::All => EMPTY_TREE.to_string(),
         }
     }
 }
@@ -75,6 +81,12 @@ pub fn diff_patch(root: &Path, mode: &DiffMode) -> Result<String> {
             "--unified=3".to_string(),
             "--no-ext-diff".to_string(),
         ],
+        DiffMode::All => vec![
+            "diff", "--no-color", "--unified=3", "--no-ext-diff", EMPTY_TREE, "HEAD",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect(),
     };
     let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     git(root, &refs)

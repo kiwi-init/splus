@@ -44,6 +44,7 @@ interface ReviewOpts {
   llm?: boolean;
   thorough?: boolean;
   learn?: boolean;
+  all?: boolean;
 }
 
 program
@@ -52,6 +53,7 @@ program
   .option("--root <dir>", "repository root", ".")
   .option("--staged", "review staged changes (pre-commit)")
   .option("--base <ref>", "review against a base ref (PR-style)")
+  .option("--all", "review the entire committed repository (every file as new)")
   .option("--json", "emit the raw engine JSON report")
   .option("--agent", "emit compact JSON for an AI agent to apply fixes")
   .option("--fail-on <severity>", "exit 1 if a finding is at/above this severity")
@@ -202,6 +204,7 @@ program.parseAsync().catch((e) => {
 // --- helpers ---------------------------------------------------------------
 
 function toMode(opts: ReviewOpts): DiffMode {
+  if (opts.all) return { kind: "all" };
   if (opts.base) return { kind: "base", ref: opts.base };
   if (opts.staged) return { kind: "staged" };
   return { kind: "working" };
