@@ -30,7 +30,9 @@ struct PbDocument {
     relative_path: String,
     #[prost(message, repeated, tag = "2")]
     occurrences: Vec<PbOccurrence>,
+    // Decoded for completeness; not read by the resolver.
     #[prost(string, tag = "4")]
+    #[allow(dead_code)]
     language: String,
 }
 
@@ -50,7 +52,6 @@ const ROLE_DEFINITION: i32 = 0x1;
 #[derive(Debug, Clone)]
 struct Occ {
     file: String,
-    line: u32, // 1-indexed
     is_def: bool,
 }
 
@@ -95,7 +96,7 @@ impl ScipGraph {
                 by_symbol
                     .entry(occ.symbol.clone())
                     .or_default()
-                    .push(Occ { file: file.clone(), line, is_def });
+                    .push(Occ { file: file.clone(), is_def });
                 if is_def {
                     defs_at.entry((file.clone(), line)).or_default().push(occ.symbol.clone());
                 }

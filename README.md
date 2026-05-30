@@ -6,6 +6,11 @@
 
 One deterministic engine · three surfaces: **GitHub App** · **local CLI** · **web dashboard**
 
+[![CI](https://github.com/kiwi-init/splus/actions/workflows/ci.yml/badge.svg)](https://github.com/kiwi-init/splus/actions/workflows/ci.yml)
+[![Splus self-review](https://github.com/kiwi-init/splus/actions/workflows/splus-review.yml/badge.svg)](https://github.com/kiwi-init/splus/actions/workflows/splus-review.yml)
+
+_Splus reviews its own pull requests._
+
 </div>
 
 ---
