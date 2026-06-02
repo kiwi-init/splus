@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Report } from "@splus/shared";
 import { triage, type LLMClient } from "./index.js";
 
@@ -88,6 +91,63 @@ test("splits keep/suppress and fails open on missing verdicts", async () => {
   assert.equal(out.llm.inputTokens, 100);
   assert.equal(out.llm.cachedInputTokens, 80);
   assert.equal(out.llm.discovered, 0, "discovery off by default");
+});
+
+test("discovery reads the full changed surface, including files with no deterministic finding", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "splus-triage-"));
+  mkdirSync(join(dir, "src"), { recursive: true });
+  writeFileSync(join(dir, "src", "a.ts"), "export const a = 1;\n");
+  // A changed file the engine found NOTHING in — discovery must still read it.
+  writeFileSync(join(dir, "src", "clean.ts"), "export function f(x) { return x.y.z; }\n");
+
+  const discoveryPrompts: string[] = [];
+  const client: LLMClient = {
+    messages: {
+      async create(body: Record<string, unknown>) {
+        const b = body as { tool_choice?: { name?: string }; messages?: unknown };
+        if (b.tool_choice?.name === "report_findings") {
+          discoveryPrompts.push(JSON.stringify(b.messages));
+          return { content: [{ type: "tool_use", name: "report_findings", input: { findings: [] } }] };
+        }
+        return { content: [{ type: "tool_use", name: "submit_triage", input: { verdicts: [] } }] };
+      },
+    },
+  };
+
+  const rep: Report = { ...report, findings: [finding("f1", "src/a.ts", "secret.real")] };
+  await triage(rep, { root: dir, client, thorough: true, changedFiles: ["src/a.ts", "src/clean.ts"] });
+
+  assert.equal(discoveryPrompts.length, 1, "discovery ran once");
+  assert.match(
+    discoveryPrompts[0] ?? "",
+    /src\/clean\.ts/,
+    "discovery must deep-read the changed file that had no finding",
+  );
+});
+
+test("without changedFiles, discovery degrades to files-with-findings and says so", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "splus-triage-"));
+  mkdirSync(join(dir, "src"), { recursive: true });
+  writeFileSync(join(dir, "src", "a.ts"), "export const a = 1;\n");
+
+  const client: LLMClient = {
+    messages: {
+      async create(body: Record<string, unknown>) {
+        const b = body as { tool_choice?: { name?: string } };
+        if (b.tool_choice?.name === "report_findings") {
+          return { content: [{ type: "tool_use", name: "report_findings", input: { findings: [] } }] };
+        }
+        return { content: [{ type: "tool_use", name: "submit_triage", input: { verdicts: [] } }] };
+      },
+    },
+  };
+
+  const rep: Report = { ...report, findings: [finding("f1", "src/a.ts", "secret.real")] };
+  const out = await triage(rep, { root: dir, client, thorough: true });
+  assert.ok(
+    out.summary.notes.some((n) => /files-with-findings only/.test(n)),
+    "the degraded scope must be disclosed in notes",
+  );
 });
 
 test("throws a clear error when no client and no API key", async () => {

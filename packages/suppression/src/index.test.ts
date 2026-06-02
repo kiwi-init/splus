@@ -94,3 +94,43 @@ test("semantic suppression catches near-duplicates, keeps unrelated", async () =
   assert.equal(out.suppressed.find((s) => s.id === "d2")?.suppressionKind, "semantic");
   assert.ok(out.kept.some((k) => k.id === "u1"), "unrelated finding should be kept");
 });
+
+const AWS_MSG =
+  "AWS Access Key ID detected on an added line. Remove the secret, rotate it, and load it from a secret manager or environment variable.";
+
+test("secret rules are exempt from semantic suppression: a dismissed fixture must NOT hide a real secret", async () => {
+  const store = newStore();
+  // A test fixture (e.g. the engine's own detector test) was dismissed by fingerprint.
+  const fixture = f("akia-fixture", "secret.aws-access-key-id", "AWS Access Key ID", AWS_MSG);
+  await store.record({
+    fingerprint: fixture.id,
+    rule_id: fixture.rule_id,
+    text: candidateText(fixture),
+    scope: "fingerprint",
+    at: "2026-06-02T00:00:00Z",
+  });
+
+  // A REAL secret of the same class: byte-identical templated message (cosine ~1.0)
+  // but a DIFFERENT fingerprint (different key value). It must survive.
+  const real = f("akia-real", "secret.aws-access-key-id", "AWS Access Key ID", AWS_MSG);
+  const out = await applySuppression(report([real]), store);
+
+  assert.equal(out.suppressed.length, 0, "a fixture dismissal must not semantically suppress a real secret");
+  assert.ok(out.kept.some((k) => k.id === "akia-real"), "the real secret must be kept");
+});
+
+test("muting a secret rule still silences it (explicit opt-in remains possible)", async () => {
+  const store = newStore();
+  await store.record({
+    fingerprint: "",
+    rule_id: "secret.aws-access-key-id",
+    text: "secret.aws-access-key-id",
+    scope: "rule",
+    at: "2026-06-02T00:00:00Z",
+  });
+  const real = f("akia-real", "secret.aws-access-key-id", "AWS Access Key ID", AWS_MSG);
+  const out = await applySuppression(report([real]), store);
+
+  assert.equal(out.suppressed.length, 1, "an explicit rule mute still suppresses");
+  assert.equal(out.suppressed[0]?.suppressionKind, "rule");
+});

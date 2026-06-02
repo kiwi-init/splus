@@ -215,9 +215,26 @@ fn run_astgrep(ctx: &ReviewContext) -> Vec<Finding> {
 // --- gitleaks (JSON) -------------------------------------------------------
 
 fn run_gitleaks(ctx: &ReviewContext) -> Vec<Finding> {
-    // `gitleaks protect --staged` scans the staged diff for secrets.
+    use crate::diff::DiffMode;
+    // gitleaks `protect` scans uncommitted changes (the pre-commit workflow);
+    // `--staged` narrows that to the index. Match the invocation to the review
+    // mode so we never scan an empty staged index and silently report zero —
+    // the old `--staged`-always behavior was a fail-open in working/base/all.
+    // gitleaks has no cheap diff-scoped command for a committed range, and these
+    // findings are not intersected with the changed-line set, so for base/all we
+    // leave secret coverage to the pure-Rust `Secrets` collector (which scans
+    // added lines in every mode) rather than scan the whole tree off-diff.
+    let scan_args: &[&str] = match ctx.mode {
+        DiffMode::Staged => {
+            &["protect", "--staged", "--report-format", "json", "--report-path", "-", "--no-banner"]
+        }
+        DiffMode::Working => {
+            &["protect", "--report-format", "json", "--report-path", "-", "--no-banner"]
+        }
+        DiffMode::Base(_) | DiffMode::All => return Vec::new(),
+    };
     let Ok(out) = Command::new("gitleaks")
-        .args(["protect", "--staged", "--report-format", "json", "--report-path", "-", "--no-banner"])
+        .args(scan_args)
         .current_dir(&ctx.root)
         .output()
     else {

@@ -12,6 +12,10 @@ use crate::model::ChangedFile;
 use std::fs;
 use std::path::PathBuf;
 
+/// Upper bound on a single file re-read for content analysis. Mirrors the graph
+/// indexer's cap so the complexity/blast-radius collectors don't load huge blobs.
+const MAX_HEAD_BYTES: u64 = 800_000;
+
 /// Everything a collector needs: the changed files + helpers to read content.
 pub struct ReviewContext {
     pub root: PathBuf,
@@ -23,8 +27,14 @@ pub struct ReviewContext {
 
 impl ReviewContext {
     /// Head (current) content of a file, read from the working tree.
+    /// Skips files larger than `MAX_HEAD_BYTES` so a giant checked-in blob with a
+    /// code extension can't be loaded wholesale into memory / tree-sitter.
     pub fn head_content(&self, path: &str) -> Option<String> {
-        fs::read_to_string(self.root.join(path)).ok()
+        let full = self.root.join(path);
+        if fs::metadata(&full).map(|m| m.len() > MAX_HEAD_BYTES).unwrap_or(false) {
+            return None;
+        }
+        fs::read_to_string(full).ok()
     }
 
     /// Base ("before") content of a file at the diff's base ref.

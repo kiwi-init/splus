@@ -13,6 +13,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Finding, Report, Severity } from "@splus/shared";
+import { Severity as SeverityEnum, Category as CategoryEnum } from "@splus/shared";
 
 export const TRIAGE_MODEL = "claude-haiku-4-5";
 export const DISCOVERY_MODEL = "claude-opus-4-8";
@@ -38,6 +39,14 @@ export interface TriageOptions {
   root: string;
   /** Run the discovery pass (frontier model) for logic/security bugs. Default false. */
   thorough?: boolean;
+  /**
+   * The full set of changed files (the real change surface) for the discovery
+   * pass to read. Discovery's whole job is to find bugs determinism missed, so it
+   * must look at changed files that produced NO deterministic finding — not only
+   * the files that did. When omitted, falls back to files-with-findings (degraded,
+   * for backward compatibility), and a note is emitted so the gap is visible.
+   */
+  changedFiles?: string[];
   /** Max concurrent LLM calls. Default 5. */
   concurrency?: number;
   /** Override models. */
@@ -215,9 +224,11 @@ export async function triage(report: Report, opts: TriageOptions): Promise<Triag
   // --- DISCOVERY (opt-in) ---
   let discovered = 0;
   let discoveryModel: string | undefined;
+  const extraNotes: string[] = [];
   if (opts.thorough) {
     discoveryModel = opts.discoveryModel ?? DISCOVERY_MODEL;
-    const files = [...byFile.keys()].slice(0, 8); // bound cost
+    const { files, notes } = selectDiscoverySurface(opts.changedFiles, [...byFile.keys()]);
+    extraNotes.push(...notes);
     const news = await discover(client, discoveryModel, opts.root, files, accUsage);
     discovered = news.length;
     kept.push(...news);
@@ -228,7 +239,11 @@ export async function triage(report: Report, opts: TriageOptions): Promise<Triag
   return {
     tool: report.tool,
     version: report.version,
-    summary: { ...report.summary, suppressed: suppressed.length },
+    summary: {
+      ...report.summary,
+      suppressed: suppressed.length,
+      notes: [...report.summary.notes, ...extraNotes],
+    },
     findings: kept,
     suppressed,
     llm: {
@@ -246,6 +261,34 @@ export async function triage(report: Report, opts: TriageOptions): Promise<Triag
 }
 
 // --- discovery ---
+
+/** How many files the (cost-bounded) discovery pass deep-reads. */
+const DISCOVERY_FILE_CAP = 8;
+
+/**
+ * The files the discovery pass should read — the real change surface (every
+ * changed file, not just the ones the engine already flagged), capped for cost —
+ * plus any disclosure notes (degraded scope when no surface was supplied, or
+ * cost-cap truncation). Kept out of `triage()` so that function stays reviewable.
+ * See the `changedFiles` docs on TriageOptions for why clean files must be read.
+ */
+function selectDiscoverySurface(
+  changedFiles: string[] | undefined,
+  filesWithFindings: string[],
+): { files: string[]; notes: string[] } {
+  const notes: string[] = [];
+  const haveSurface = (changedFiles?.length ?? 0) > 0;
+  const surface = haveSurface ? changedFiles! : filesWithFindings;
+  if (!haveSurface) {
+    notes.push(
+      "Discovery scoped to files-with-findings only (no changedFiles supplied) — clean changed files were not deep-reviewed.",
+    );
+  }
+  if (surface.length > DISCOVERY_FILE_CAP) {
+    notes.push(`Discovery deep-reviewed ${DISCOVERY_FILE_CAP} of ${surface.length} changed file(s) (cost cap).`);
+  }
+  return { files: surface.slice(0, DISCOVERY_FILE_CAP), notes };
+}
 
 async function discover(
   client: LLMClient,
@@ -285,12 +328,17 @@ async function discover(
   const fileSet = new Set(files);
   for (const d of parseTool<{ findings: DiscoveryItem[] }>(res)?.findings ?? []) {
     if (!fileSet.has(d.file)) continue; // must cite a provided file (anti-hallucination)
+    // The model is tool-constrained but not schema-validated on the client side,
+    // so a stray severity/category would make severityRank() return undefined and
+    // silently bucket the finding as a nit. Validate against the canonical enums.
+    const severity: Severity = SeverityEnum.safeParse(d.severity).success ? (d.severity as Severity) : "medium";
+    const category = (CategoryEnum.safeParse(d.category).success ? d.category : "correctness") as TriagedFinding["category"];
     out.push({
       id: `llm:${d.file}:${d.line}:${hashTitle(d.title)}`,
-      rule_id: `discovery.${d.category}`,
-      category: d.category as TriagedFinding["category"],
-      severity: d.severity as Severity,
-      tier: severityRank(d.severity as Severity) >= 3 ? "must-fix" : severityRank(d.severity as Severity) === 2 ? "concern" : "nit",
+      rule_id: `discovery.${category}`,
+      category,
+      severity,
+      tier: severityRank(severity) >= 3 ? "must-fix" : severityRank(severity) === 2 ? "concern" : "nit",
       confidence: d.confidence,
       file: d.file,
       region: { start_line: d.line, start_col: 0, end_line: d.line, end_col: 0 },
