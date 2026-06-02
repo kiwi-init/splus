@@ -1,32 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" font-family="'JetBrains Mono', ui-monospace, monospace">
-  <defs>
-    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
-      <path d="M32 0 H0 V32" fill="none" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1" />
-    </pattern>
-  </defs>
+  <rect width="1200" height="630" fill="#556aa1" />
 
-  <rect width="1200" height="630" fill="#0a0a0a" />
-  <rect width="1200" height="630" fill="url(#grid)" />
-
-  <!-- signal wave (white) + noise floor (grey) -->
+  <!-- signal wave (cream) over a faint noise floor -->
   <path d="M0,500 C120,420 220,420 320,500 C420,580 520,580 620,500 C720,420 820,420 920,500 C1000,450 1120,475 1200,485"
-    fill="none" stroke="#ededed" stroke-opacity="0.38" stroke-width="2.5" />
+    fill="none" stroke="#f7f5ef" stroke-opacity="0.32" stroke-width="2.5" />
 
   <!-- brand -->
-  <text x="84" y="150" font-size="30" font-weight="700" fill="#ededed" letter-spacing="1">
-    splus<tspan fill="#6f6f6f" font-weight="400"> — a kiwi init tool</tspan>
+  <text x="84" y="150" font-size="30" font-weight="700" fill="#f7f5ef" letter-spacing="1">
+    splus<tspan fill="#f7f5ef" fill-opacity="0.55" font-weight="400"> — a kiwi init tool</tspan>
   </text>
 
   <!-- headline -->
-  <text x="80" y="300" font-size="62" font-weight="700" fill="#ededed" letter-spacing="-2">Don&#8217;t pay for another agent.</text>
-  <text x="80" y="378" font-size="62" font-weight="700" fill="#a6d24b" letter-spacing="-2">Juice the one you&#8217;ve got.</text>
+  <text x="80" y="300" font-size="62" font-weight="700" fill="#f7f5ef" fill-opacity="0.82" letter-spacing="-2">Don&#8217;t pay for another agent.</text>
+  <text x="80" y="378" font-size="62" font-weight="700" fill="#f7f5ef" letter-spacing="-2">Juice the one you&#8217;ve got.</text>
 
   <!-- sub -->
-  <text x="84" y="452" font-size="23" fill="#aeaeae">
+  <text x="84" y="452" font-size="23" fill="#f7f5ef" fill-opacity="0.8">
     A deterministic, local review engine your coding agent calls over MCP.
   </text>
 
   <!-- footer -->
-  <text x="84" y="582" font-size="21" fill="#4c4c4c">splus.sh</text>
-  <text x="1116" y="582" font-size="21" fill="#4c4c4c" text-anchor="end">open source · runs on your machine</text>
+  <text x="84" y="582" font-size="21" fill="#f7f5ef" fill-opacity="0.5">splus.sh</text>
+  <text x="1116" y="582" font-size="21" fill="#f7f5ef" fill-opacity="0.5" text-anchor="end">open source · runs on your machine</text>
 </svg>

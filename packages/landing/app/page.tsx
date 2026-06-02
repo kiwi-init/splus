@@ -11,38 +11,14 @@ const KIWI = `  · | ·
 ·  /|\\  ·
   · | ·`;
 
-// the loop, built on a fixed grid so the columns can never drift
-const pad = (s: string, n = 12) => {
-  const total = n - [...s].length;
-  const left = Math.floor(total / 2);
-  return " ".repeat(left) + s + " ".repeat(total - left);
-};
-const bar = "─".repeat(12);
-const top = `┌${bar}┐`;
-const bot = `└${bar}┘`;
-const GAP = " ".repeat(7);
-const ARR = "  ───→ "; // 7 cells wide, matches GAP
-const COLS = [
-  ["your agent", "claude·codex"],
-  ["splus", "rust engine"],
-  ["real bugs", "nothing else"],
-];
-const FLOW = [
-  [top, top, top].join(GAP),
-  COLS.map((c) => `│${pad(c[0])}│`).join(ARR),
-  COLS.map((c) => `│${pad(c[1])}│`).join(ARR),
-  [bot, bot, bot].join(GAP),
-].join("\n");
+// signal/noise viz — full-cell block chars, so it can never misalign
+const SIGNAL = "▁▂▃▄▅▆▇█▇▆▅▄▃▂▁".repeat(5);
+const NOISE = "·  ".repeat(28);
 
 export default function Home() {
   return (
     <>
       <a className="skip" href="#install">Skip to install</a>
-
-      <div className="atmosphere" aria-hidden="true">
-        <div className="grid-paper" />
-        <div className="scanlines" />
-      </div>
 
       {/* header */}
       <header className="nav" id="top">
@@ -58,7 +34,7 @@ export default function Home() {
           <div className="hero-copy">
             <h1 className="h1">
               Don&rsquo;t pay for another agent.<br />
-              <span className="juice">Juice the one you&rsquo;ve got.</span>
+              <span className="punch">Juice the one you&rsquo;ve got.</span>
             </h1>
             <p className="lede">
               splus drops a deterministic review engine into the coding agent you already run —
@@ -75,12 +51,21 @@ export default function Home() {
           </figure>
         </section>
 
-        {/* ascii */}
+        {/* ascii — signal over noise */}
         <section className="ascii reveal">
-          <div className="ascii-frame">
-            <pre className="ascii-art" aria-hidden="true">{FLOW}</pre>
+          <div className="viz">
+            <div className="viz-row">
+              <span className="viz-label">signal</span>
+              <pre className="viz-wave" aria-hidden="true">{SIGNAL}</pre>
+              <span className="viz-note">real findings, anchored</span>
+            </div>
+            <div className="viz-row">
+              <span className="viz-label">noise</span>
+              <pre className="viz-floor" aria-hidden="true">{NOISE}</pre>
+              <span className="viz-note">false positives, suppressed</span>
+            </div>
           </div>
-          <p className="ascii-cap">splus sits between your agent and your diff — it returns only what&rsquo;s worth fixing.</p>
+          <p className="ascii-cap">splus keeps the signal and floors the noise — only what&rsquo;s worth fixing reaches you.</p>
         </section>
 
         {/* install */}
