@@ -8,8 +8,8 @@ A deterministic Rust engine your coding agent (**Claude Code · Codex · OpenCod
 MCP. It reviews only *new* lines, proves every finding, maps the cross-file blast radius, and
 learns the noise you wave off. No account, no token, nothing leaves your machine.
 
-[![CI](https://github.com/ojowwalker77/Splus/actions/workflows/ci.yml/badge.svg)](https://github.com/ojowwalker77/Splus/actions/workflows/ci.yml)
-[![Splus self-review](https://github.com/ojowwalker77/Splus/actions/workflows/splus-review.yml/badge.svg)](https://github.com/ojowwalker77/Splus/actions/workflows/splus-review.yml)
+[![CI](https://github.com/kiwi-init/splus/actions/workflows/ci.yml/badge.svg)](https://github.com/kiwi-init/splus/actions/workflows/ci.yml)
+[![Splus self-review](https://github.com/kiwi-init/splus/actions/workflows/splus-review.yml/badge.svg)](https://github.com/kiwi-init/splus/actions/workflows/splus-review.yml)
 
 </div>
 

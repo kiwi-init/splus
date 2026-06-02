@@ -21,7 +21,7 @@ pnpm --filter @splus/landing dev      # http://localhost:3000
 
 ## Deploy to Vercel (splus.sh)
 
-1. New Project → import `ojowwalker77/Splus`.
+1. New Project → import `kiwi-init/splus`.
 2. **Root Directory:** `packages/landing`
 3. **Framework Preset:** Next.js (auto-detected). Leave Build/Install/Output at defaults.
 4. Add the domain **`splus.sh`** (apex).

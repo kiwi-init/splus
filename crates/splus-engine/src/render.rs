@@ -189,7 +189,7 @@ pub fn sarif(report: &Report) -> String {
             "tool": { "driver": {
                 "name": "Splus",
                 "version": report.version,
-                "informationUri": "https://github.com/ojowwalker77/Splus",
+                "informationUri": "https://github.com/kiwi-init/splus",
                 "rules": rules,
             }},
             "results": results,

@@ -17,7 +17,7 @@
 #   SPLUS_NO_WIRE=1         don't auto-wire coding agents
 set -eu
 
-REPO="ojowwalker77/Splus"
+REPO="kiwi-init/splus"
 INSTALL_DIR="${SPLUS_INSTALL_DIR:-$HOME/.splus}"
 BIN_DIR="$INSTALL_DIR/bin"
 LIB_DIR="$INSTALL_DIR/lib"

@@ -1,6 +1,6 @@
 import Interactions from "@/components/Interactions";
 
-const REPO = "https://github.com/ojowwalker77/Splus";
+const REPO = "https://github.com/kiwi-init/splus";
 const INSTALL = "curl -fsSL https://splus.sh/install.sh | sh";
 
 export default function Home() {
