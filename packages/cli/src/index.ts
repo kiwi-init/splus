@@ -9,6 +9,7 @@
 import { Command } from "commander";
 import {
   exceedsThreshold,
+  listChangedFiles,
   runEngine,
   severityRank,
   type DiffMode,
@@ -202,8 +203,10 @@ program
   .action(() => {
     const url = "https://splus.sh/install.sh";
     console.log(`Updating Splus from ${url} …`);
-    // Bootstrap with curl if present, else wget. The installer is idempotent.
-    const cmd = `command -v curl >/dev/null 2>&1 && curl -fsSL ${url} | sh || wget -qO- ${url} | sh`;
+    // Pick the download tool up front, then run the installer once. Using
+    // `curl … | sh || wget … | sh` would re-run the whole installer via wget
+    // whenever the install itself exits non-zero, masking the failure.
+    const cmd = `if command -v curl >/dev/null 2>&1; then curl -fsSL ${url} | sh; else wget -qO- ${url} | sh; fi`;
     const r = spawnSync("sh", ["-c", cmd], { stdio: "inherit" });
     process.exit(r.status ?? 0);
   });
@@ -257,7 +260,12 @@ async function reviewWithLlm(opts: ReviewOpts, report: Report): Promise<void> {
   let triaged: TriagedReport;
   try {
     // The LLM only sees candidates that survived deterministic suppression.
-    triaged = await triage(report, { root: opts.root, thorough: opts.thorough });
+    // Discovery, however, reads the full changed surface (clean files included).
+    triaged = await triage(report, {
+      root: opts.root,
+      thorough: opts.thorough,
+      changedFiles: listChangedFiles(opts.root, toMode(opts)),
+    });
   } catch (e) {
     // Precision-first, but never block on the LLM being unavailable: fall back
     // to the (already suppression-filtered) deterministic findings.

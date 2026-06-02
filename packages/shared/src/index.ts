@@ -3,7 +3,7 @@
  * src/model.rs) + a runner that shells out to the Rust engine and validates
  * its JSON. The single shared vocabulary across the CLI and the GitHub App.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
@@ -131,6 +131,13 @@ export function resolveEngine(explicit?: string): string {
   return "splus-engine"; // assume on PATH
 }
 
+/** Reject a base ref git would parse as an option (e.g. `--output=…`) not a revision. */
+function assertSafeRef(ref: string): void {
+  if (ref.startsWith("-")) {
+    throw new Error(`invalid base ref '${ref}': cannot start with '-'`);
+  }
+}
+
 function modeArgs(mode: DiffMode): string[] {
   switch (mode.kind) {
     case "staged":
@@ -138,6 +145,7 @@ function modeArgs(mode: DiffMode): string[] {
     case "working":
       return [];
     case "base":
+      assertSafeRef(mode.ref);
       return ["--base", mode.ref];
     case "all":
       return ["--all"];
@@ -196,6 +204,34 @@ function exec(bin: string, args: string[]): Promise<{ stdout: string; stderr: st
     child.on("error", rej);
     child.on("close", (code) => res({ stdout, stderr, code: code ?? 0 }));
   });
+}
+
+/**
+ * The set of files git considers changed for a given mode — the real change
+ * surface. Used to drive a reviewer (human or LLM discovery pass) over every
+ * changed file, including ones the deterministic engine produced no finding for.
+ * `--diff-filter=d` excludes deletions (nothing left to read). Returns [] on error.
+ */
+export function listChangedFiles(root: string, mode: DiffMode): string[] {
+  if (mode.kind === "base") assertSafeRef(mode.ref);
+  const args =
+    mode.kind === "staged"
+      ? ["diff", "--cached", "--name-only", "--diff-filter=d"]
+      : mode.kind === "base"
+        ? ["diff", "--name-only", "--diff-filter=d", `${mode.ref}...HEAD`, "--"]
+        : mode.kind === "all"
+          ? ["ls-files"]
+          : ["diff", "--name-only", "--diff-filter=d", "HEAD"];
+  const r = spawnSync("git", args, {
+    cwd: resolve(root),
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (r.status !== 0) return [];
+  return (r.stdout ?? "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 /** Map our severities to a numeric rank (mirrors the engine). */

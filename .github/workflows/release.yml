@@ -41,6 +41,16 @@ jobs:
       - name: Build engine (release)
         run: cargo build --release --locked --bin splus-engine --target ${{ matrix.target }}
 
+      - name: Verify binary architecture (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          bin="target/${{ matrix.target }}/release/splus-engine"
+          file "$bin"
+          case "${{ matrix.target }}" in
+            x86_64-*)  file "$bin" | grep -q "x86_64" || { echo "::error::expected an x86_64 binary, cross-compile produced the wrong arch"; exit 1; } ;;
+            aarch64-*) file "$bin" | grep -q "arm64"  || { echo "::error::expected an arm64 binary"; exit 1; } ;;
+          esac
+
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -74,6 +84,20 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      - name: Verify all platform artifacts are present
+        run: |
+          cd artifacts
+          missing=0
+          for name in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+            if [ ! -f "splus-$name.tar.gz" ]; then
+              echo "::error::missing release artifact: splus-$name.tar.gz"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Refusing to publish a partial release — install.sh would 404 for the missing platform."
+            exit 1
+          fi
       - name: Checksums
         run: |
           cd artifacts

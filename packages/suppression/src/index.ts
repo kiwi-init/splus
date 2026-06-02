@@ -55,6 +55,23 @@ export interface SuppressionStore {
 const SAME_RULE_THRESHOLD = 0.82;
 const CROSS_RULE_THRESHOLD = 0.93;
 
+/**
+ * Security findings (secrets, injection/eval sinks) are exempt from the semantic
+ * tier — they may only be silenced by an EXACT fingerprint dismissal or an
+ * intentional rule `mute`, never by lexical similarity.
+ *
+ * Why this matters: the engine templates a finding's message on its rule alone
+ * (e.g. every `secret.aws-access-key-id` carries the identical "AWS Access Key ID
+ * detected on an added line…" text, independent of the matched value/file). So
+ * two distinct secret findings embed to cosine ~1.0. Without this gate, a single
+ * `dismiss` of a TEST FIXTURE would semantically suppress a REAL, newly-committed
+ * secret of the same class anywhere in the repo — silently disabling the detector.
+ * For a security control, exact-or-explicit is the only safe generalization.
+ */
+function semanticEligible(ruleId: string): boolean {
+  return !/^(secret|security)\./.test(ruleId);
+}
+
 function decide(
   candidate: Candidate,
   fpSet: Set<string>,
@@ -68,7 +85,7 @@ function decide(
   if (ruleSet.has(candidate.rule_id)) {
     return { suppress: true, kind: "rule", reason: `rule '${candidate.rule_id}' is muted for this repo` };
   }
-  if (embedder && semantic.length > 0) {
+  if (semanticEligible(candidate.rule_id) && embedder && semantic.length > 0) {
     const vec = embedder.embed(candidate.text);
     let best = 0;
     let bestSameRule = 0;
@@ -117,8 +134,11 @@ export class FileSuppressionStore implements SuppressionStore {
   private load(): FileShape {
     if (!existsSync(this.path)) return { version: 1, entries: [] };
     try {
-      const parsed = JSON.parse(readFileSync(this.path, "utf8")) as FileShape;
-      return { version: 1, entries: parsed.entries ?? [] };
+      const parsed = JSON.parse(readFileSync(this.path, "utf8")) as Partial<FileShape>;
+      // Guard against a structurally-valid but wrong-typed `entries` (e.g. a
+      // hand-edited store where it's an object/number) — iterating that downstream
+      // would throw out of the unguarded dismiss/mute/learnings CLI paths.
+      return { version: 1, entries: Array.isArray(parsed?.entries) ? parsed.entries : [] };
     } catch {
       return { version: 1, entries: [] };
     }

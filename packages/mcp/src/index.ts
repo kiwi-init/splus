@@ -32,7 +32,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { runEngine, type DiffMode, type Finding, type Report } from "@splus/shared";
+import { listChangedFiles, runEngine, type DiffMode, type Finding, type Report } from "@splus/shared";
 import {
   applySuppression,
   candidateText,
@@ -182,21 +182,6 @@ function summaryLine(report: Report, suppressedCount: number): string {
   return `Splus: ${s.must_fix} must-fix · ${s.concern} concern · ${s.nit} nit on ${s.files_changed} changed file(s)${supp}.`;
 }
 
-/** Files git considers changed for this mode — what the agent reads for the discovery pass. */
-function changedFiles(root: string, mode: ReviewMode, base: string | null): string[] {
-  const args =
-    mode === "staged"
-      ? ["diff", "--cached", "--name-only", "--diff-filter=d"]
-      : mode === "base"
-        ? ["diff", "--name-only", "--diff-filter=d", `${base ?? ""}...HEAD`]
-        : mode === "all"
-          ? ["ls-files"]
-          : ["diff", "--name-only", "--diff-filter=d", "HEAD"];
-  const r = spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  if (r.status !== 0) return [];
-  return (r.stdout ?? "").split("\n").map((s) => s.trim()).filter(Boolean);
-}
-
 /**
  * The handoff that makes Splus full-power inside a coding agent: the agent IS the
  * senior reviewer. The deterministic findings are the floor; this directive drives
@@ -286,10 +271,11 @@ server.registerTool(
     const repo = rootOf(root);
     const m = (mode ?? "working") as ReviewMode;
     if (m === "base" && !base) return fail("mode='base' requires a `base` ref.");
+    const dmode = toMode(m, base ?? null);
 
     let report: Report;
     try {
-      report = await runEngine({ root: repo, mode: toMode(m, base ?? null) });
+      report = await runEngine({ root: repo, mode: dmode });
     } catch (e) {
       return fail(
         `Could not run the Splus engine: ${e instanceof Error ? e.message : String(e)}. ` +
@@ -316,7 +302,11 @@ server.registerTool(
     if (llm) {
       try {
         const { triage } = await import("@splus/triage");
-        const triaged = await triage(report, { root: repo, thorough: thorough === true });
+        const triaged = await triage(report, {
+          root: repo,
+          thorough: thorough === true,
+          changedFiles: listChangedFiles(repo, dmode),
+        });
         return ok(
           `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(toAgentTriaged(triaged), null, 2)}`,
         );
@@ -332,7 +322,7 @@ server.registerTool(
     const body = `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(payload, null, 2)}`;
     // The handoff: ground the agent, then drive it through the discovery pass.
     if (discovery === false) return ok(body);
-    return ok(`${body}\n\n${discoveryDirective(changedFiles(repo, m, base ?? null))}`);
+    return ok(`${body}\n\n${discoveryDirective(listChangedFiles(repo, dmode))}`);
   },
 );
 

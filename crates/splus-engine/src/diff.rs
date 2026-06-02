@@ -61,6 +61,14 @@ pub fn is_git_repo(root: &Path) -> bool {
 
 /// Produce the unified diff patch for the requested mode.
 pub fn diff_patch(root: &Path, mode: &DiffMode) -> Result<String> {
+    // A base ref starting with `-` would be parsed by git as an option, not a
+    // revision (e.g. `--output=<file>` → arbitrary file write, `--ext-diff` →
+    // re-enables external diff drivers). Reject it before it reaches git.
+    if let DiffMode::Base(b) = mode {
+        if b.starts_with('-') {
+            bail!("invalid base ref {b:?}: refs cannot start with '-'");
+        }
+    }
     let args: Vec<String> = match mode {
         DiffMode::Staged => vec![
             "diff", "--cached", "--no-color", "--unified=3", "--no-ext-diff",
@@ -74,12 +82,15 @@ pub fn diff_patch(root: &Path, mode: &DiffMode) -> Result<String> {
         .into_iter()
         .map(String::from)
         .collect(),
+        // Options first, then the revision range, then `--` to terminate options
+        // so the range can never be reinterpreted as a flag.
         DiffMode::Base(b) => vec![
             "diff".to_string(),
-            format!("{b}...HEAD"),
             "--no-color".to_string(),
             "--unified=3".to_string(),
             "--no-ext-diff".to_string(),
+            format!("{b}...HEAD"),
+            "--".to_string(),
         ],
         DiffMode::All => vec![
             "diff", "--no-color", "--unified=3", "--no-ext-diff", EMPTY_TREE, "HEAD",
@@ -106,6 +117,13 @@ pub fn parse_unified_diff(patch: &str) -> Vec<ChangedFile> {
     let mut files: Vec<ChangedFile> = Vec::new();
     let mut cur: Option<ChangedFile> = None;
     let mut new_line: u32 = 0;
+    // The `--- `/`+++ ` file headers only appear once per file, before its first
+    // `@@` hunk. Once inside a hunk, a line starting with `--- `/`+++ ` is added
+    // or removed CONTENT (e.g. a SQL/Lua comment `-- x`, or a `++ y` source line)
+    // — not a header. Gating header detection on this flag stops such content
+    // from corrupting `f.path` and (for `+++ `) silently failing to advance
+    // `new_line`, which would drift every later anchor in the hunk.
+    let mut in_hunk = false;
 
     for raw in patch.lines() {
         if let Some(rest) = raw.strip_prefix("diff --git ") {
@@ -118,13 +136,14 @@ pub fn parse_unified_diff(patch: &str) -> Vec<ChangedFile> {
                 cf.path = b.to_string();
             }
             cur = Some(cf);
-        } else if raw.starts_with("--- ") {
+            in_hunk = false;
+        } else if !in_hunk && raw.starts_with("--- ") {
             if let Some(f) = cur.as_mut() {
                 if raw.trim_end() == "--- /dev/null" {
                     f.is_new = true;
                 }
             }
-        } else if let Some(p) = raw.strip_prefix("+++ ") {
+        } else if let Some(p) = raw.strip_prefix("+++ ").filter(|_| !in_hunk) {
             if let Some(f) = cur.as_mut() {
                 let p = p.trim();
                 if p == "/dev/null" {
@@ -134,11 +153,14 @@ pub fn parse_unified_diff(patch: &str) -> Vec<ChangedFile> {
                 }
             }
         } else if raw.starts_with("@@") {
+            in_hunk = true;
             new_line = parse_hunk_new_start(raw).unwrap_or(new_line);
         } else if let Some(f) = cur.as_mut() {
-            if raw.starts_with("+++") {
-                continue;
-            } else if let Some(text) = raw.strip_prefix('+') {
+            // Inside a hunk: any `+++…` here is an ADDED content line whose source
+            // begins with `++` (the header form is gated out above by `in_hunk`).
+            // Strip the single diff `+` and keep it, advancing `new_line` so later
+            // anchors stay aligned.
+            if let Some(text) = raw.strip_prefix('+') {
                 f.added.push(AddedLine { line: new_line, text: text.to_string() });
                 f.added_set.insert(new_line);
                 new_line += 1;
@@ -209,5 +231,70 @@ new file mode 100644\n\
         assert_eq!(files.len(), 1);
         assert!(files[0].is_new);
         assert_eq!(files[0].added.len(), 2);
+    }
+
+    #[test]
+    fn added_line_starting_with_plusplus_is_captured_and_does_not_drift() {
+        // Source line `++count;` shows up in the patch as `+++count;`. It must be
+        // recorded as an added line, and must still advance the new-file cursor so
+        // the following added line keeps its correct number.
+        let p = "diff --git a/src/inc.ts b/src/inc.ts\n\
+--- a/src/inc.ts\n\
++++ b/src/inc.ts\n\
+@@ -10,2 +10,4 @@\n\
+ const a = 1;\n\
++++count;\n\
++const b = 2;\n\
+ return a;\n";
+        let files = parse_unified_diff(p);
+        assert_eq!(files.len(), 1);
+        let f = &files[0];
+        // The `++count;` line is captured at new-file line 11, content intact.
+        assert!(
+            f.added.iter().any(|l| l.line == 11 && l.text == "++count;"),
+            "added `++count;` must be captured at line 11, got {:?}",
+            f.added
+        );
+        // No drift: the next added line is 12, not 11.
+        assert!(
+            f.added.iter().any(|l| l.line == 12 && l.text == "const b = 2;"),
+            "following added line must keep line 12 (no drift), got {:?}",
+            f.added
+        );
+    }
+
+    #[test]
+    fn spaced_plusplus_and_minusminus_content_inside_hunk_are_not_headers() {
+        // Inside a hunk, `+++ note` (source `++ note`) and `--- drop` (source
+        // `-- drop`, e.g. a SQL/Lua comment) are CONTENT, not file headers. They
+        // must not corrupt the path or drift later anchors.
+        let p = "diff --git a/db/migrate.sql b/db/migrate.sql\n\
+--- a/db/migrate.sql\n\
++++ b/db/migrate.sql\n\
+@@ -10,3 +10,4 @@\n\
+ SELECT 1;\n\
+--- drop\n\
++++ note\n\
++SELECT 2;\n";
+        let files = parse_unified_diff(p);
+        assert_eq!(files.len(), 1);
+        let f = &files[0];
+        // Path comes from the real `+++ b/...` header, not the `+++ note` content.
+        assert_eq!(f.path, "db/migrate.sql");
+        // `++ note` is captured as added content at new-file line 11.
+        assert!(
+            f.added.iter().any(|l| l.line == 11 && l.text == "++ note"),
+            "added `++ note` must be captured at line 11, got {:?}",
+            f.added
+        );
+        // No drift: the following added line keeps line 12.
+        assert!(
+            f.added.iter().any(|l| l.line == 12 && l.text == "SELECT 2;"),
+            "following added line must keep line 12 (no drift), got {:?}",
+            f.added
+        );
+        // The `-- drop` removed line is now counted (it was swallowed as a `---`
+        // header before the in_hunk gate).
+        assert_eq!(f.removed_count, 1);
     }
 }
