@@ -1,10 +1,14 @@
 name: Release
 
-# Tag a version (e.g. `git tag v0.3.0 && git push --tags`) to cut a release.
+# Tag a version (e.g. `git tag v0.3.1 && git push --tags`) to cut a release.
 # Builds the deterministic engine for each platform, bundles the CLI + MCP server
 # into single .cjs files, and publishes a GitHub Release with per-platform
 # tarballs + SHA256SUMS. The installer (install.sh) pulls these via the stable
 # `releases/latest/download/splus-<os>-<arch>.tar.gz` URL.
+#
+# Both macOS targets build on the Apple-Silicon runner (macos-14): arm64 native,
+# x64 via a trivial cross-compile — so a release never waits on the slow/scarce
+# Intel (macos-13) queue. Linux builds native on x64 + arm64 runners.
 
 on:
   push:
@@ -18,21 +22,24 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: darwin-arm64, runner: macos-14 }
-          - { name: darwin-x64, runner: macos-13 }
-          - { name: linux-x64, runner: ubuntu-22.04 }
-          - { name: linux-arm64, runner: ubuntu-22.04-arm }
+          - { name: darwin-arm64, runner: macos-14, target: aarch64-apple-darwin }
+          - { name: darwin-x64, runner: macos-14, target: x86_64-apple-darwin }
+          - { name: linux-x64, runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { name: linux-arm64, runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
 
       - name: Build engine (release)
-        run: cargo build --release --locked --bin splus-engine
+        run: cargo build --release --locked --bin splus-engine --target ${{ matrix.target }}
 
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
@@ -49,7 +56,7 @@ jobs:
       - name: Package tarball
         run: |
           mkdir -p staging
-          cp target/release/splus-engine staging/
+          cp "target/${{ matrix.target }}/release/splus-engine" staging/
           cp dist-release/cli.cjs dist-release/mcp.cjs staging/
           tar -czf "splus-${{ matrix.name }}.tar.gz" -C staging .
 

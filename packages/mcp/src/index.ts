@@ -44,7 +44,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const server = new McpServer({ name: "splus", version: "0.3.0" });
+const server = new McpServer({ name: "splus", version: "0.3.1" });
 
 type ReviewMode = "working" | "staged" | "base" | "all";
 

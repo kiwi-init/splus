@@ -1,12 +1,12 @@
 # Splus — Rust workspace
-# The deterministic review engine. TS surfaces (CLI, GitHub App) shell out to the
-# `splus-engine` binary and consume its canonical Finding JSON.
+# The deterministic review engine. The TS surfaces (CLI, MCP server) shell out to
+# the `splus-engine` binary and consume its canonical Finding JSON.
 [workspace]
 resolver = "2"
 members = ["crates/splus-engine"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.3.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/ojowwalker77/Splus"
