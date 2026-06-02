@@ -1,9 +1,11 @@
 @import "tailwindcss";
 
 /* ════════════════════════════════════════════════════════════════════
-   S+ landing — terminal-monochrome. Near-black + white/greys, ONE amber
-   whisper (CTA / active / the live signal), JetBrains Mono throughout,
+   S+ landing — terminal-monochrome. Near-black + white/greys, ONE
+   kiwi-green whisper (CTA / active / the live signal) — the Kiwi Init
+   brand color, doubling as terminal phosphor. JetBrains Mono throughout,
    ASCII / box-drawing as texture. Restrained, archival, severe.
+   A Kiwi Init project · kiwiinit.com
    ════════════════════════════════════════════════════════════════════ */
 
 :root {
@@ -17,10 +19,11 @@
   --line: rgba(255, 255, 255, 0.08);
   --line-2: rgba(255, 255, 255, 0.15);
 
-  /* the single accent — used ONLY on CTA, active state, the live signal */
-  --accent: #e0b15e;
-  --accent-bright: #f1cd8c;
-  --accent-dim: rgba(224, 177, 94, 0.16);
+  /* the single accent — kiwi green (Kiwi Init brand × terminal phosphor).
+     used ONLY on CTA, active state, the live signal */
+  --accent: #a6d24b;
+  --accent-bright: #c4ea6e;
+  --accent-dim: rgba(166, 210, 75, 0.16);
 
   /* chart/scope lines are monochrome: signal = white, noise = grey */
   --signal: #ededed;
@@ -55,7 +58,7 @@ a { color: inherit; text-decoration: none; }
   background: var(--accent); color: #0a0a0a; padding: 8px 14px; border-radius: 4px; font-size: 13px;
 }
 .skip:focus { left: 8px; }
-::selection { background: rgba(224, 177, 94, 0.25); color: var(--accent-bright); }
+::selection { background: rgba(166, 210, 75, 0.22); color: var(--accent-bright); }
 
 /* ── atmosphere — flat black, a whisper of grid, no glow ──────────── */
 .atmosphere { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
@@ -110,6 +113,9 @@ h2 {
 .brand-mark { color: var(--ink); flex: none; }
 .brand-word { font-weight: 700; font-size: 18px; letter-spacing: 0.02em; }
 .brand-plus { color: var(--accent); }
+.brand-by { font-size: 11px; color: var(--ink-faint); letter-spacing: 0.02em; white-space: nowrap; align-self: center; transition: color 0.15s; }
+.brand-by:hover { color: var(--accent); }
+.brand-by b { color: var(--ink-dim); font-weight: 500; }
 .nav-links { display: flex; gap: 22px; margin-left: 16px; margin-right: auto; }
 .nav-links a { font-size: 13px; color: var(--ink-dim); transition: color 0.15s; }
 .nav-links a:hover { color: var(--ink); }
@@ -285,6 +291,15 @@ h2 {
 .brand-word-lg { font-size: 26px; font-weight: 700; }
 .foot-brand p { color: var(--ink-faint); font-size: 12.5px; margin-top: 10px; line-height: 1.6; }
 .foot-domain { color: var(--ink-dim); }
+
+/* ── kiwi init family signature ───────────────────────────────────── */
+.kiwi-sign { display: inline-flex; align-items: center; gap: 14px; margin-top: 22px; }
+.kiwi-ascii { color: var(--accent); font-size: 11px; line-height: 1.15; white-space: pre; letter-spacing: 0; transition: color 0.18s; }
+.kiwi-by { font-size: 12px; color: var(--ink-dim); line-height: 1.5; }
+.kiwi-by .kiwi-tag { display: block; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 3px; }
+.kiwi-by .kiwi-url { color: var(--ink); transition: color 0.15s; }
+.kiwi-sign:hover .kiwi-url { color: var(--accent); }
+.kiwi-sign:hover .kiwi-ascii { color: var(--accent-bright); }
 .foot-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
 .foot-cols h4 { font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 14px; }
 .foot-cols a { display: block; font-size: 13px; color: var(--ink-dim); margin-bottom: 9px; transition: color 0.15s; }
@@ -312,6 +327,7 @@ html.js .reveal.in-view { opacity: 1; transform: none; }
 }
 @media (max-width: 540px) {
   .nav-cta .btn-ghost { display: none; }
+  .brand-by { display: none; }
   .steps, .stat-row { grid-template-columns: 1fr; }
   .stat { border-right: none; }
   .node-row { grid-template-columns: 1fr; }

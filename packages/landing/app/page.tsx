@@ -1,7 +1,15 @@
 import Interactions from "@/components/Interactions";
 
 const REPO = "https://github.com/kiwi-init/splus";
+const ORG = "https://kiwiinit.com";
 const INSTALL = "curl -fsSL https://splus.sh/install.sh | sh";
+
+// ascii kiwi slice — seeds radiating from a pale core (the Kiwi Init mark)
+const KIWI = `  · | ·
+·  \\|/  ·
+──( o )──
+·  /|\\  ·
+  · | ·`;
 
 export default function Home() {
   return (
@@ -24,6 +32,7 @@ export default function Home() {
           </svg>
           <span className="brand-word">S<span className="brand-plus">+</span></span>
         </a>
+        <a className="brand-by" href={ORG} rel="noopener">a <b>kiwi&nbsp;init</b> project</a>
         <nav className="nav-links" aria-label="Primary">
           <a href="#how">How it works</a>
           <a href="#precision">Precision</a>
@@ -367,6 +376,13 @@ command = "~/.splus/bin/splus-mcp"
         <div className="foot-brand">
           <span className="brand-word brand-word-lg">S<span className="brand-plus">+</span></span>
           <p>Precision-first code review.<br /><span className="foot-domain">splus.sh</span></p>
+          <a className="kiwi-sign" href={ORG} rel="noopener" aria-label="A Kiwi Init project — kiwiinit.com">
+            <pre className="kiwi-ascii" aria-hidden="true">{KIWI}</pre>
+            <span className="kiwi-by">
+              <span className="kiwi-tag">a kiwi init project</span>
+              <span className="kiwi-url">kiwiinit.com →</span>
+            </span>
+          </a>
         </div>
         <nav className="foot-cols" aria-label="Footer">
           <div>
@@ -386,6 +402,7 @@ command = "~/.splus/bin/splus-mcp"
             <a href="#precision">Precision</a>
             <a href="#trust">Trust</a>
             <a href="https://splus.sh/install.sh">install.sh</a>
+            <a href={ORG} rel="noopener">Kiwi Init ↗</a>
           </div>
         </nav>
         <p className="foot-legal">© <span data-year="">2026</span> S+ · maximize signal, floor the noise.</p>
