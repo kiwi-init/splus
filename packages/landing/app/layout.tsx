@@ -10,11 +10,11 @@ const mono = JetBrains_Mono({
 });
 
 const description =
-  "S+ is a deterministic-first code reviewer. It reviews only new lines, proves every finding, maps the blast radius across files, and learns the noise your team dismisses. Maximum signal, noise on the floor.";
+  "S+ is an open-source, local-first code reviewer. A deterministic Rust engine your coding agent (Claude Code, Codex, OpenCode) calls over MCP — it reviews only new lines, proves every finding, maps the blast radius across files, and learns the noise you dismiss. Nothing leaves your machine.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://splus.sh"),
-  title: "S+ — precision-first code review",
+  title: "S+ — precision-first, local code review",
   description,
   icons: { icon: "/favicon.svg" },
   openGraph: {

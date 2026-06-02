@@ -17,7 +17,7 @@ jobs:
         run: cargo test --locked
 
   packages:
-    name: TS packages · build · typecheck · test
+    name: TS packages · build · typecheck · test · bundle
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,3 +31,8 @@ jobs:
       - run: pnpm -r typecheck
       - name: unit tests
         run: node --test packages/suppression/dist/*.test.js packages/triage/dist/*.test.js
+      - name: bundle smoke test (release artifacts build + parse)
+        run: |
+          pnpm build:release
+          node --check dist-release/cli.cjs
+          node --check dist-release/mcp.cjs

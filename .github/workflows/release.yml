@@ -1,0 +1,81 @@
+name: Release
+
+# Tag a version (e.g. `git tag v0.3.0 && git push --tags`) to cut a release.
+# Builds the deterministic engine for each platform, bundles the CLI + MCP server
+# into single .cjs files, and publishes a GitHub Release with per-platform
+# tarballs + SHA256SUMS. The installer (install.sh) pulls these via the stable
+# `releases/latest/download/splus-<os>-<arch>.tar.gz` URL.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: darwin-arm64, runner: macos-14 }
+          - { name: darwin-x64, runner: macos-13 }
+          - { name: linux-x64, runner: ubuntu-22.04 }
+          - { name: linux-arm64, runner: ubuntu-22.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build engine (release)
+        run: cargo build --release --locked --bin splus-engine
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build + bundle CLI and MCP
+        run: |
+          pnpm --filter @splus/shared --filter @splus/suppression \
+               --filter @splus/triage --filter @splus/cli --filter @splus/mcp build
+          pnpm build:release
+
+      - name: Package tarball
+        run: |
+          mkdir -p staging
+          cp target/release/splus-engine staging/
+          cp dist-release/cli.cjs dist-release/mcp.cjs staging/
+          tar -czf "splus-${{ matrix.name }}.tar.gz" -C staging .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: splus-${{ matrix.name }}
+          path: splus-${{ matrix.name }}.tar.gz
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum splus-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/splus-*.tar.gz
+            artifacts/SHA256SUMS
+          generate_release_notes: true

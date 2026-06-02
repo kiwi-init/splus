@@ -1,8 +1,8 @@
 {
   "name": "splus",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Splus — the precision-first code reviewer. One deterministic engine, three surfaces: GitHub App, local CLI, web dashboard.",
+  "description": "Splus — the precision-first, local-first code reviewer. A deterministic Rust engine your coding agent (Claude Code, Codex, OpenCode) calls over MCP. Open source, runs entirely on your machine.",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@10.0.0",
@@ -10,7 +10,16 @@
     "engine:build": "cargo build --release",
     "engine:test": "cargo test",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "build:release": "node scripts/build-release.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "engines": {
     "node": ">=20"

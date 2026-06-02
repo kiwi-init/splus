@@ -31,7 +31,7 @@ const program = new Command();
 program
   .name("splus")
   .description("Splus — precision-first code review, locally and in CI")
-  .version("0.1.0");
+  .version("0.3.0");
 
 interface ReviewOpts {
   root: string;
@@ -194,6 +194,18 @@ program
       const head = e.scope === "rule" ? `[rule] ${e.rule_id}` : `[fp]   ${e.fingerprint} (${e.rule_id})`;
       console.log(`${head}  — ${e.signal} ${e.at}`);
     }
+  });
+
+program
+  .command("update")
+  .description("Update Splus to the latest release (re-runs the installer)")
+  .action(() => {
+    const url = "https://splus.sh/install.sh";
+    console.log(`Updating Splus from ${url} …`);
+    // Bootstrap with curl if present, else wget. The installer is idempotent.
+    const cmd = `command -v curl >/dev/null 2>&1 && curl -fsSL ${url} | sh || wget -qO- ${url} | sh`;
+    const r = spawnSync("sh", ["-c", cmd], { stdio: "inherit" });
+    process.exit(r.status ?? 0);
   });
 
 program.parseAsync().catch((e) => {

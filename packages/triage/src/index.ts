@@ -411,3 +411,8 @@ async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<v
   });
   await Promise.all(workers);
 }
+
+// Provider adapters (OpenAI GPT-5.5 hosted judge; selector). The Anthropic/local
+// path above is untouched — these are additive.
+export { createOpenAIClient } from "./openai.js";
+export { createLLMClient } from "./provider.js";

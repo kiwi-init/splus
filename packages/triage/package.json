@@ -17,7 +17,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.69.0",
-    "@splus/shared": "workspace:*"
+    "@splus/shared": "workspace:*",
+    "openai": "^4.77.0"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

@@ -34,7 +34,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r build
+      - run: pnpm --filter @splus/shared --filter @splus/suppression --filter @splus/triage --filter @splus/cli build
 
       - name: SCIP index (precise blast-radius tier · best-effort)
         continue-on-error: true

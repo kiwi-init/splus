@@ -2,120 +2,154 @@
 
 # Splus
 
-**The precision-first code reviewer.** The one whose comments a senior engineer almost never dismisses.
+**The precision-first code reviewer — open source, and 100% local.**
 
-One deterministic engine · three surfaces: **GitHub App** · **local CLI** · **web dashboard**
+A deterministic Rust engine your coding agent (**Claude Code · Codex · OpenCode**) calls over
+MCP. It reviews only *new* lines, proves every finding, maps the cross-file blast radius, and
+learns the noise you wave off. No account, no token, nothing leaves your machine.
 
-[![CI](https://github.com/kiwi-init/splus/actions/workflows/ci.yml/badge.svg)](https://github.com/kiwi-init/splus/actions/workflows/ci.yml)
-[![Splus self-review](https://github.com/kiwi-init/splus/actions/workflows/splus-review.yml/badge.svg)](https://github.com/kiwi-init/splus/actions/workflows/splus-review.yml)
-
-_Splus reviews its own pull requests._
+[![CI](https://github.com/ojowwalker77/Splus/actions/workflows/ci.yml/badge.svg)](https://github.com/ojowwalker77/Splus/actions/workflows/ci.yml)
+[![Splus self-review](https://github.com/ojowwalker77/Splus/actions/workflows/splus-review.yml/badge.svg)](https://github.com/ojowwalker77/Splus/actions/workflows/splus-review.yml)
 
 </div>
 
 ---
 
+## Install
+
+```sh
+curl -fsSL https://splus.sh/install.sh | sh
+```
+
+This downloads the engine + a local MCP server into `~/.splus` and wires it into every coding
+agent it finds (Claude Code, Codex, OpenCode). Then, in your agent:
+
+> "review my staged changes with splus"
+
+Requirements: **git** and **node ≥ 20**. Update anytime with `splus update`.
+
+<details>
+<summary>Wire an agent manually</summary>
+
+```sh
+# Claude Code
+claude mcp add --scope user splus -- ~/.splus/bin/splus-mcp
+```
+```toml
+# Codex — ~/.codex/config.toml
+[mcp_servers.splus]
+command = "~/.splus/bin/splus-mcp"
+```
+```json
+// OpenCode — ~/.config/opencode/opencode.json
+{ "mcp": { "splus": { "type": "local", "command": ["~/.splus/bin/splus-mcp"], "enabled": true } } }
+```
+</details>
+
 ## Why
 
-Every AI reviewer races on catch-rate. The market is begging for the opposite. Independent measurement (the Martian Code Review Bench — ~200k real PRs scored by *whether the developer actually fixed the flagged line*) caps even the best tools at **~50–64% F1 / ~49–62% precision**. Roughly half of every competitor's comments get ignored. **Noise — not missed bugs — is the #1 reason teams turn these tools off.**
+Every AI reviewer races on catch-rate, and the market is begging for the opposite. Independent
+measurement (the Martian Code Review Bench — ~200k real PRs scored by *whether the developer
+actually fixed the flagged line*) caps even the best tools at **~50–64% F1 / ~49–62%
+precision**. Roughly half of every competitor's comments get ignored. **Noise — not missed
+bugs — is the #1 reason teams turn these tools off.**
 
-Splus wins on signal-to-noise **by construction**: a deterministic engine does maximal work, every finding cites a reproducible **anchor**, everything is **diff-scoped** (clean-as-you-code — only *new* code is ever flagged), and the (future) LLM stage is reserved for judgment, not scanning.
+Splus wins on signal-to-noise **by construction**: a deterministic engine does maximal work,
+every finding cites a reproducible **anchor**, everything is **diff-scoped** (clean-as-you-code
+— only *new* code is ever flagged), and the optional LLM stage is reserved for judgment, not
+scanning. Your agent stays the reviewer; Splus supplies precise, provable findings.
 
-> See [`REPORT.md`](REPORT.md) for the full strategy + architecture, and [`docs/RESEARCH.md`](docs/RESEARCH.md) for the competitive/tooling research it's built on.
+## The MCP tools
 
-## What's here (this pass: the deterministic core)
+Your agent connects to the local server and calls these:
 
+| Tool        | What it does                                                                |
+| ----------- | --------------------------------------------------------------------------- |
+| `review`    | Review `working` / `staged` / `base..HEAD` / whole-repo (`all`) changes.     |
+| `dismiss`   | Teach Splus a finding is noise — it generalizes to close variants.           |
+| `mute`      | Mute an entire rule for this repo.                                           |
+| `learnings` | List what's been suppressed on this repo.                                    |
+| `index`     | Build a SCIP index locally for the precise (compiler-grade) blast-radius tier. |
+
+Learnings are stored per-repo in `.splus-cache/learnings.json` — they stay in your checkout.
+
+## The CLI
+
+The installer also puts a `splus` CLI on your PATH (handy for pre-commit hooks / CI):
+
+```sh
+splus review --staged                 # pretty, deterministic, $0
+splus review --staged --agent         # compact JSON for an agent to apply fixes
+splus review --base origin/main       # PR-style base..HEAD
+splus dismiss <finding-id>            # stop flagging this + close variants
+splus mute hygiene.python-print       # mute a whole rule
+splus learnings                       # what it has learned on this repo
+splus index                           # → .splus-cache/index.scip (precise blast radius)
+splus init-hooks --fail-on high       # install a pre-commit hook (non-blocking on engine error)
+splus update                          # update to the latest release
+
+# Optional LLM layer (off by default; needs ANTHROPIC_API_KEY):
+ANTHROPIC_API_KEY=sk-ant-... splus review --staged --llm
 ```
-Splus/
-├── crates/splus-engine/     # Rust deterministic engine — the source of truth
-│   └── src/
-│       ├── diff.rs          #   git diff → clean-as-you-code added-line set
-│       ├── collectors/      #   secrets · heuristics · complexity · blast-radius · external
-│       ├── analysis/        #   tree-sitter symbols · cognitive complexity · cross-file graph
-│       ├── pipeline.rs      #   circuit breakers → collect → dedup → severity-sort
-│       └── render.rs        #   pretty · JSON · SARIF
-├── packages/
-│   ├── shared/              # canonical Finding model (TS, mirrors Rust) + engine runner
-│   ├── suppression/        # learned per-repo noise filter (exact · rule · semantic) + pgvector
-│   ├── triage/             # LLM layer — judge/explain/suppress + fix (downstream of the engine)
-│   ├── cli/                 # `splus review` / `dismiss` / `mute` / `learnings` / `init-hooks`
-│   ├── app/                 # `@splus` GitHub App (Probot)
-│   └── dashboard/          # web console + public Trust Center (Hono + zero-build SPA)
-├── REPORT.md                # strategy, architecture, MVP plan
-└── docs/RESEARCH.md         # competitive + tooling intelligence
-```
 
-### The deterministic pipeline (zero inference)
+## How it works — the deterministic pipeline (zero inference)
 
 | Stage | Does | Saves inference by |
 |---|---|---|
-| **0 Guard** | size/generated/vendored circuit breakers | bounding cost on huge/monorepo PRs |
-| **1 Diff** | `git blame` clean-as-you-code added-line set | never touching legacy/unchanged code |
-| **2 Strip** | (planned) AST-diff noise strip | dropping formatting-only changes |
-| **3 Collectors** | secrets (regex+entropy) · diff heuristics · external SARIF (Semgrep/ast-grep/gitleaks/OSV) | high-confidence findings with no LLM |
-| **4 Blast radius** | cross-file caller graph for changed exports — **precise (SCIP, compiler-grade)** where an `index.scip` exists, name+import heuristic otherwise | structured impact facts, not guesses |
-| **— Metrics** | cognitive-complexity **delta** base→head | defensible maintainability signals |
+| **0 Guard** | size/generated/vendored circuit breakers | bounding cost on huge/monorepo diffs |
+| **1 Diff** | `git` clean-as-you-code added-line set | never touching legacy/unchanged code |
+| **2 Collectors** | secrets (regex+entropy) · diff heuristics · external SARIF (Semgrep/ast-grep/gitleaks/OSV) | high-confidence findings with no LLM |
+| **3 Blast radius** | cross-file caller graph for changed exports — **precise (SCIP, compiler-grade)** where an `index.scip` exists, name+import heuristic otherwise | structured impact facts, not guesses |
+| **4 Metrics** | cognitive-complexity **delta** base→head | defensible maintainability signals |
+| **5 Suppress** | per-repo learned filter (exact · rule · semantic) | dropping known noise before you ever see it |
 
-Every finding carries an **anchor** (`secret` / `metric` / `graph-edge` / `sarif` / `heuristic`) and a stable fingerprint. Cross-file claims always show an explicit **resolution confidence** — we never present a name+import heuristic as compiler-grade truth.
+Every finding carries an **anchor** (`secret` / `metric` / `graph-edge` / `sarif` /
+`heuristic`) and a stable fingerprint. Cross-file claims always show an explicit **resolution
+confidence** — Splus never presents a name+import heuristic as compiler-grade truth. Deep
+analysis (symbols, complexity, blast radius) covers **TypeScript / JavaScript / TSX / Python**;
+other languages degrade gracefully (secrets + heuristics still apply).
 
-## Quick start
+## Privacy
 
-```bash
-# 1. Build the engine (Rust)
-cargo build --release
-cargo test                       # 23 tests
+100% local. No account, no token, no telemetry, no phone-home. The engine runs on your
+checkout; diffs are never uploaded. The optional LLM triage is off unless you set a key, and
+then it talks only to the provider you chose.
 
-# 2. Build the TS surfaces
-pnpm install
-pnpm -r build
+## Build from source
 
-# 3. Review your working tree (from inside any git repo)
-export SPLUS_ENGINE=$PWD/target/release/splus-engine
-node packages/cli/dist/index.js review --staged          # pretty (deterministic, $0)
-node packages/cli/dist/index.js review --staged --agent  # JSON for Claude Code / Cursor / Codex
-node packages/cli/dist/index.js review --base origin/main # PR-style
-
-# Precise (compiler-grade) blast radius: generate a SCIP index once (CI-friendly);
-# `review` auto-detects it and upgrades cross-file impact from heuristic → 97%.
-node packages/cli/dist/index.js index   # → .splus-cache/index.scip (scip-typescript/python)
-
-# Optional LLM layer: triages/explains/suppresses on top of the deterministic
-# candidates (needs ANTHROPIC_API_KEY; falls back to deterministic if absent).
-ANTHROPIC_API_KEY=sk-ant-... node packages/cli/dist/index.js review --staged --llm
-node packages/cli/dist/index.js review --staged --llm --thorough  # + discovery pass
-
-# 4. Install a pre-commit hook (non-blocking on engine error)
-node packages/cli/dist/index.js init-hooks --fail-on high
-
-# 5. Teach it — it gets quieter over time (per-repo, exact + rule + semantic)
-node packages/cli/dist/index.js dismiss <finding-id>   # stop flagging this + close variants
-node packages/cli/dist/index.js mute hygiene.python-print  # mute a whole rule
-node packages/cli/dist/index.js learnings              # what it has learned
-
-# 6. Web console + public Trust Center (seeds sample data on first run)
-pnpm --filter @splus/dashboard start   # → http://localhost:4040  ·  /trust
+```sh
+cargo build --release        # the engine → target/release/splus-engine
+cargo test                   # engine tests
+pnpm install && pnpm -r build
+pnpm build:release           # bundle the CLI + MCP server → dist-release/{cli,mcp}.cjs
 ```
 
-Or run the engine directly:
+Run the engine directly if you like:
 
-```bash
+```sh
 target/release/splus-engine review --staged --format pretty
 target/release/splus-engine review --base main --format sarif   # GitHub code scanning
 ```
 
-The GitHub App lives in [`packages/app`](packages/app/README.md).
+Cutting a release: tag `v*` and push — `.github/workflows/release.yml` cross-compiles the
+engine for macOS/Linux, bundles the CLI + MCP, and publishes a GitHub Release that `install.sh`
+pulls from. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-## Status
+## Repo layout
 
-- ✅ Rust engine: diff parsing, clean-as-you-code, secrets, heuristics, cognitive-complexity delta, cross-file blast radius, external-tool adapters (graceful), pretty/JSON/SARIF output, circuit breakers. **23 tests green.**
-- ✅ **Precise blast-radius tier** (SCIP): the engine reads a compiler-grade `index.scip` (from `scip-typescript`/`scip-python`, generated by `splus index`, auto-detected at review time) and resolves cross-file references *exactly* — upgrading the moat from a 60% heuristic to 97% compiler-grade on TS/JS/Python, with honest fallback everywhere else. SCIP runs out-of-band (CI), never on the hot path.
-- ✅ CLI: `review` (pretty / `--json` / `--agent` / `--fail-on` / `--llm`), `init-hooks` (husky/lefthook/pre-commit).
-- ✅ GitHub App: Probot skeleton — clone → engine → (optional LLM triage) → batched review + suggestions + neutral check; per-repo `.splus.yml`.
-- ✅ **LLM layer** (`@splus/triage`): strictly downstream of the engine. Haiku-4.5 triage (keep/suppress + confidence + rationale + fix via forced tool-use, sharded, prompt-cached); opt-in Opus-4.8 discovery pass. Fails open — deterministic core works with zero inference.
-- ✅ **Learned suppression** (`@splus/suppression`): per-repo noise filter — exact (dismissed fingerprint), rule-mute, and **semantic** (cosine over a dependency-free feature-hash embedder; pgvector backend for hosted). Dismiss one finding → its whole class goes quiet. Wired into the CLI (`dismiss`/`mute`/`learnings`) and the App (`@splus mute <rule>`), applied before LLM spend.
-- ✅ **Web console + Trust Center** (`@splus/dashboard`): Hono + zero-build SPA. Org/repo overview, the **falling-false-positive / precision-over-time** hero chart (hand-rolled SVG), per-repo config editor (writes `.splus.yml`), a Learnings manager over the real suppression store, a transparent per-author billing meter, and a public Trust Center (no-training, ephemeral retention, self-host/BYO-LLM, provider-neutral, SOC 2, published-precision methodology).
-- ⏭️ Next: AST-diff noise strip · incremental-on-synchronize (per-PR last-reviewed SHA) · richer transformers embedder · cache `index.scip` per default-branch commit in the App runner · persist the dashboard config back to the repo / Postgres.
+```
+crates/splus-engine/   # the deterministic engine (Rust) — the source of truth
+packages/
+  shared/              # canonical Finding model (TS, mirrors Rust) + engine runner
+  suppression/         # learned per-repo noise filter (exact · rule · semantic)
+  triage/              # optional LLM layer — judge/explain/suppress (downstream of the engine)
+  cli/                 # the `splus` CLI
+  mcp/                 # the local MCP server your agent talks to
+  landing/             # splus.sh marketing site (serves install.sh)
+install.sh             # the one-line installer
+docs/RESEARCH.md       # competitive + tooling research
+```
 
 ## License
 
-MIT.
+[MIT](LICENSE).

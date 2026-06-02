@@ -1,5 +1,8 @@
 import Interactions from "@/components/Interactions";
 
+const REPO = "https://github.com/ojowwalker77/Splus";
+const INSTALL = "curl -fsSL https://splus.sh/install.sh | sh";
+
 export default function Home() {
   return (
     <>
@@ -24,13 +27,12 @@ export default function Home() {
         <nav className="nav-links" aria-label="Primary">
           <a href="#how">How it works</a>
           <a href="#precision">Precision</a>
-          <a href="#run">Pricing</a>
-          <a href="#trust">Trust</a>
-          <a href="https://github.com/ojowwalker77" rel="noopener">GitHub</a>
+          <a href="#local">Local</a>
+          <a href={REPO} rel="noopener">GitHub</a>
         </nav>
         <div className="nav-cta">
-          <a className="btn btn-ghost" href="https://dash.splus.sh">Dashboard</a>
-          <a className="btn btn-solid" href="#install">Get started</a>
+          <a className="btn btn-ghost" href={REPO} rel="noopener">Star on GitHub</a>
+          <a className="btn btn-solid" href="#install">Install</a>
         </div>
       </header>
 
@@ -38,7 +40,7 @@ export default function Home() {
         {/* hero */}
         <section className="hero">
           <div className="hero-copy">
-            <p className="eyebrow"><span className="blip" />Precision-first code review</p>
+            <p className="eyebrow"><span className="blip" />Open-source · local-first code review</p>
             <h1 className="display">
               Only the comments<br />
               <span className="hl-signal">worth reading.</span>
@@ -46,17 +48,17 @@ export default function Home() {
             <p className="lede">
               Most AI reviewers bury real bugs under false positives. S+ is{" "}
               <strong>deterministic-first</strong>: it reviews only new lines, proves every
-              finding, maps the blast radius across files, and learns the noise your team
-              waves off. Maximum signal — noise on the floor.
+              finding, maps the blast radius across files, and learns the noise you wave off.
+              One install wires it into your coding agent — and nothing ever leaves your machine.
             </p>
             <div className="hero-actions">
-              <a className="btn btn-solid btn-lg" href="#install">Install free, run locally →</a>
-              <a className="btn btn-ghost btn-lg" href="#github">Connect GitHub</a>
+              <a className="btn btn-solid btn-lg" href="#install">Install — one line →</a>
+              <a className="btn btn-ghost btn-lg" href={REPO} rel="noopener">View source</a>
             </div>
             <p className="hero-foot">
-              <span className="tick">no API key</span>
-              <span className="tick">no code leaves your machine</span>
-              <span className="tick">~60s to first review</span>
+              <span className="tick">open source (MIT)</span>
+              <span className="tick">no account, no key</span>
+              <span className="tick">nothing leaves your machine</span>
             </p>
           </div>
 
@@ -90,7 +92,7 @@ export default function Home() {
                 "every finding has an anchor",
                 "learns your noise",
                 "bring your own LLM",
-                "runs locally, free",
+                "runs 100% locally",
               ].flatMap((t, j) => [
                 <span key={`${i}-${j}-t`}>{t}</span>,
                 <span key={`${i}-${j}-d`} className="dot">+</span>,
@@ -102,38 +104,40 @@ export default function Home() {
         {/* install */}
         <section id="install" className="install reveal">
           <div className="section-head">
-            <p className="kicker">01 — Start free</p>
+            <p className="kicker">01 — Install</p>
             <h2>One line. Then ask your agent to review.</h2>
             <p className="sub">
-              S+ ships as an MCP server your coding agent calls. The agent does the reasoning,
-              S+ supplies the proof. Nothing is billed, nothing leaves your laptop.
+              The installer drops the deterministic engine + a local MCP server into{" "}
+              <code>~/.splus</code> and wires it into every coding agent it finds — Claude Code,
+              Codex, OpenCode. No account, no token, nothing billed.
             </p>
           </div>
 
           <div className="terminal">
             <div className="terminal-tabs" role="tablist">
-              <button className="tab is-active" role="tab" data-tab="claude">Claude Code</button>
-              <button className="tab" role="tab" data-tab="codex">Codex</button>
-              <button className="tab" role="tab" data-tab="other">Other agents</button>
+              <button className="tab is-active" role="tab" data-tab="install">Install</button>
+              <button className="tab" role="tab" data-tab="claude">Claude Code</button>
+              <button className="tab" role="tab" data-tab="manual">Codex / OpenCode</button>
             </div>
 
             <div className="terminal-body">
-              <div className="snippet is-active" data-pane="claude">
-                <pre><code><span className="c-prompt">$</span>{" claude mcp add splus -- npx -y @splus/mcp"}</code></pre>
-                <button className="copy" data-copy="claude mcp add splus -- npx -y @splus/mcp" aria-label="Copy command">copy</button>
+              <div className="snippet is-active" data-pane="install">
+                <pre><code><span className="c-prompt">$</span>{` ${INSTALL}`}</code></pre>
+                <button className="copy" data-copy={INSTALL} aria-label="Copy command">copy</button>
               </div>
-              <div className="snippet" data-pane="codex">
-                <pre><code>{`# ~/.codex/config.toml
+              <div className="snippet" data-pane="claude">
+                <pre><code><span className="c-prompt">$</span>{" claude mcp add --scope user splus -- ~/.splus/bin/splus-mcp"}</code></pre>
+                <button className="copy" data-copy="claude mcp add --scope user splus -- ~/.splus/bin/splus-mcp" aria-label="Copy command">copy</button>
+              </div>
+              <div className="snippet" data-pane="manual">
+                <pre><code>{`# Codex — ~/.codex/config.toml
 [mcp_servers.splus]
-command = "npx"
-args = ["-y", "@splus/mcp"]`}</code></pre>
-                <button className="copy" data-copy={`[mcp_servers.splus]\ncommand = "npx"\nargs = ["-y", "@splus/mcp"]`} aria-label="Copy config">copy</button>
-              </div>
-              <div className="snippet" data-pane="other">
-                <pre><code>{`# any MCP-capable client
-command: npx
-args:    ["-y", "@splus/mcp"]`}</code></pre>
-                <button className="copy" data-copy={`command: npx\nargs: ["-y", "@splus/mcp"]`} aria-label="Copy config">copy</button>
+command = "~/.splus/bin/splus-mcp"
+
+# OpenCode — ~/.config/opencode/opencode.json
+{ "mcp": { "splus": { "type": "local",
+  "command": ["~/.splus/bin/splus-mcp"], "enabled": true } } }`}</code></pre>
+                <button className="copy" data-copy={`[mcp_servers.splus]\ncommand = "~/.splus/bin/splus-mcp"`} aria-label="Copy config">copy</button>
               </div>
             </div>
 
@@ -192,14 +196,14 @@ args:    ["-y", "@splus/mcp"]`}</code></pre>
               <text className="chart-x" x="370" y="360" textAnchor="middle" fill="currentColor">reviews over time →</text>
             </svg>
             <figcaption>
-              Illustrative. S+ publishes the real per-repo curve in your dashboard — precision is a
-              number we stand behind, not a slogan.
+              Illustrative. Every finding is reproducible from its anchor — precision is something
+              you can verify locally, not a slogan.
             </figcaption>
           </figure>
 
           <div className="stat-row reveal">
             <div className="stat"><b>only new lines</b><span>legacy code is never re-litigated</span></div>
-            <div className="stat"><b>0 inference</b><span>on the free local tier — your agent thinks</span></div>
+            <div className="stat"><b>0 inference</b><span>by default — your agent does the judging</span></div>
             <div className="stat"><b>every finding</b><span>cites a deterministic anchor, not a vibe</span></div>
             <div className="stat"><b>compounding</b><span>each dismissal quiets a whole class</span></div>
           </div>
@@ -211,8 +215,8 @@ args:    ["-y", "@splus/mcp"]`}</code></pre>
             <p className="kicker">03 — How it works</p>
             <h2>Deterministic first. The model only judges.</h2>
             <p className="sub">
-              Most of the work happens with zero inference — fast, reproducible, and cheap. The LLM
-              is downstream, and it only ever sees what survived.
+              Most of the work happens with zero inference — fast, reproducible, and cheap. Your
+              agent (or an optional local LLM pass) is downstream, and only ever sees what survived.
             </p>
           </div>
 
@@ -235,7 +239,7 @@ args:    ["-y", "@splus/mcp"]`}</code></pre>
             <li className="step reveal">
               <span className="step-n">4</span>
               <h3>Suppress, then judge</h3>
-              <p>Your repo&rsquo;s learned filter drops known noise. Only then does an LLM triage what&rsquo;s left — your agent locally, a frontier model in the cloud.</p>
+              <p>Your repo&rsquo;s learned filter drops known noise. Only then does your agent triage what&rsquo;s left — or an optional local LLM pass, if you set a key.</p>
             </li>
           </ol>
         </section>
@@ -243,7 +247,7 @@ args:    ["-y", "@splus/mcp"]`}</code></pre>
         {/* moat */}
         <section className="moat">
           <div className="moat-copy reveal">
-            <p className="kicker">04 — The moat</p>
+            <p className="kicker">04 — The edge</p>
             <h2>It tells you what a change can break.</h2>
             <p className="sub">
               Line-by-line reviewers see a function in isolation. S+ sees the graph: change a
@@ -279,46 +283,27 @@ args:    ["-y", "@splus/mcp"]`}</code></pre>
           </figure>
         </section>
 
-        {/* two ways to run */}
-        <section id="run" className="run">
+        {/* local / open source */}
+        <section id="local" className="run">
           <div className="section-head reveal">
-            <p className="kicker">05 — Two ways to run</p>
-            <h2>Free on your machine. Paid on your PRs.</h2>
+            <p className="kicker">05 — Runs on your machine</p>
+            <h2>Local by default. Open by license.</h2>
+            <p className="sub">
+              The whole reviewer is a deterministic Rust engine + a tiny MCP server. It runs where
+              your code already lives — no server to trust, no diffs uploaded, nothing to pay for.
+            </p>
           </div>
 
-          <div className="plans">
-            <article className="plan reveal">
-              <header className="plan-head">
-                <h3>Local</h3>
-                <span className="price">Free<span>forever</span></span>
-              </header>
-              <p className="plan-line">For the editor. Review before you commit.</p>
-              <ul className="plan-feats">
-                <li>MCP server your agent calls — Claude Code, Codex, more</li>
-                <li>Full deterministic engine + blast radius</li>
-                <li>Per-repo learning that quiets your noise</li>
-                <li>No API key · no code leaves your machine</li>
-                <li>Your agent is the judge — zero inference cost</li>
-              </ul>
-              <a className="btn btn-solid btn-block" href="#install">Copy the install line</a>
-            </article>
+          <div className="stat-row reveal">
+            <div className="stat"><b>MCP-native</b><span>your agent calls it — Claude Code, Codex, OpenCode</span></div>
+            <div className="stat"><b>zero egress</b><span>no account, no token, no code leaves your laptop</span></div>
+            <div className="stat"><b>BYO LLM</b><span>provider-neutral; optional, off by default</span></div>
+            <div className="stat"><b>MIT</b><span>read it, fork it, self-host it — it&rsquo;s yours</span></div>
+          </div>
 
-            <article className="plan plan-pro reveal">
-              <span className="plan-badge">Team</span>
-              <header className="plan-head">
-                <h3>GitHub bot</h3>
-                <span className="price">Usage<span>per active author</span></span>
-              </header>
-              <p className="plan-line">For the PR. Review every change, automatically.</p>
-              <ul className="plan-feats">
-                <li>Auto-review every PR <em>or</em> on <code>@splus</code> mention</li>
-                <li>Configure auto vs mention, severity gates, path filters</li>
-                <li>Frontier-model judging — only what&rsquo;s worth your time</li>
-                <li>Team learnings sync across the org</li>
-                <li>Transparent, per-author usage in the dashboard</li>
-              </ul>
-              <a className="btn btn-ghost btn-block" id="github" href="https://dash.splus.sh">Connect GitHub →</a>
-            </article>
+          <div className="hero-actions reveal" style={{ justifyContent: "center", marginTop: "2rem" }}>
+            <a className="btn btn-solid btn-lg" href="#install">Copy the install line</a>
+            <a className="btn btn-ghost btn-lg" href={REPO} rel="noopener">Read the source →</a>
           </div>
         </section>
 
@@ -339,7 +324,7 @@ args:    ["-y", "@splus/mcp"]`}</code></pre>
                 <tr><td>Cross-file blast radius with confidence</td><td className="us"><span className="yes">●</span></td><td><span className="no">○</span></td></tr>
                 <tr><td>Learns &amp; suppresses your dismissals</td><td className="us"><span className="yes">●</span></td><td><span className="meh">◐</span></td></tr>
                 <tr><td>Runs fully locally, free, no key</td><td className="us"><span className="yes">●</span></td><td><span className="no">○</span></td></tr>
-                <tr><td>Bring your own LLM / provider-neutral</td><td className="us"><span className="yes">●</span></td><td><span className="no">○</span></td></tr>
+                <tr><td>Open source / bring your own LLM</td><td className="us"><span className="yes">●</span></td><td><span className="no">○</span></td></tr>
                 <tr><td>Default posture</td><td className="us">quiet</td><td>loud</td></tr>
               </tbody>
             </table>
@@ -354,14 +339,14 @@ args:    ["-y", "@splus/mcp"]`}</code></pre>
               <h2>Your code is yours.</h2>
             </div>
             <ul className="trust-grid">
-              <li><b>No training on your code.</b> Ever. Not for us, not for a provider.</li>
-              <li><b>Configurable retention.</b> Keep diffs for minutes, or not at all.</li>
-              <li><b>Self-host the engine.</b> The deterministic core runs anywhere.</li>
-              <li><b>Bring your own LLM.</b> Provider-neutral by design.</li>
-              <li><b>Published precision.</b> We show our methodology and our numbers.</li>
-              <li><b>SOC 2 path.</b> Built for the security review from day one.</li>
+              <li><b>Nothing leaves your machine.</b> The engine runs on your checkout — no uploads.</li>
+              <li><b>No telemetry.</b> No accounts, no tracking, no phone-home.</li>
+              <li><b>Open source (MIT).</b> Audit every line; the engine is the source of truth.</li>
+              <li><b>Bring your own LLM.</b> Provider-neutral, and off unless you opt in.</li>
+              <li><b>Reproducible findings.</b> Every comment traces back to a concrete anchor.</li>
+              <li><b>Learnings stay local.</b> Dismissals live in <code>.splus-cache</code>, in your repo.</li>
             </ul>
-            <a className="btn btn-ghost" href="https://dash.splus.sh/trust">Read the Trust Center →</a>
+            <a className="btn btn-ghost" href={REPO} rel="noopener">Read the source →</a>
           </div>
         </section>
 
@@ -371,8 +356,8 @@ args:    ["-y", "@splus/mcp"]`}</code></pre>
             Stop reading noise.<br /><span className="hl-signal">Start at the signal.</span>
           </h2>
           <div className="hero-actions">
-            <a className="btn btn-solid btn-lg" href="#install">Install free →</a>
-            <a className="btn btn-ghost btn-lg" href="https://dash.splus.sh">Connect GitHub</a>
+            <a className="btn btn-solid btn-lg" href="#install">Install — one line →</a>
+            <a className="btn btn-ghost btn-lg" href={REPO} rel="noopener">View on GitHub</a>
           </div>
         </section>
       </main>
@@ -386,21 +371,21 @@ args:    ["-y", "@splus/mcp"]`}</code></pre>
         <nav className="foot-cols" aria-label="Footer">
           <div>
             <h4>Product</h4>
-            <a href="#install">Local (free)</a>
-            <a href="#github">GitHub bot</a>
-            <a href="https://dash.splus.sh">Dashboard</a>
+            <a href="#install">Install</a>
+            <a href="#how">How it works</a>
+            <a href="#local">Runs locally</a>
           </div>
           <div>
-            <h4>Trust</h4>
-            <a href="https://dash.splus.sh/trust">Trust Center</a>
-            <a href="https://dash.splus.sh/trust">Precision method</a>
-            <a href="https://dash.splus.sh/trust">Data &amp; retention</a>
+            <h4>Open source</h4>
+            <a href={REPO} rel="noopener">GitHub</a>
+            <a href={`${REPO}#readme`} rel="noopener">Docs</a>
+            <a href={`${REPO}/releases`} rel="noopener">Releases</a>
           </div>
           <div>
             <h4>More</h4>
-            <a href="https://github.com/ojowwalker77" rel="noopener">GitHub</a>
-            <a href="#how">How it works</a>
             <a href="#precision">Precision</a>
+            <a href="#trust">Trust</a>
+            <a href="https://splus.sh/install.sh">install.sh</a>
           </div>
         </nav>
         <p className="foot-legal">© <span data-year="">2026</span> S+ · maximize signal, floor the noise.</p>

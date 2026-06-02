@@ -5,6 +5,8 @@
 # Node
 node_modules/
 dist/
+dist-release/
+staging/
 *.tsbuildinfo
 .pnpm-store/
 
@@ -22,3 +24,5 @@ private-key*.pem
 # Splus runtime
 .splus-cache/
 .splus-data/
+.vercel
+.env*

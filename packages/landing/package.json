@@ -2,9 +2,10 @@
   "name": "@splus/landing",
   "version": "0.1.0",
   "private": true,
-  "description": "S+ marketing landing page — Next.js + Tailwind, deployed to splus.sh on Vercel.",
+  "description": "S+ marketing landing page — Next.js + Tailwind, deployed to splus.sh on Vercel. Also serves the install.sh one-liner at /install.sh.",
   "scripts": {
     "dev": "next dev",
+    "prebuild": "cp ../../install.sh public/install.sh",
     "build": "next build",
     "start": "next start"
   },
