@@ -10,17 +10,17 @@ const mono = JetBrains_Mono({
 });
 
 const description =
-  "S+ is an open-source, local-first code reviewer. A deterministic Rust engine your coding agent (Claude Code, Codex, OpenCode) calls over MCP — it reviews only new lines, proves every finding, maps the blast radius across files, and learns the noise you dismiss. Nothing leaves your machine.";
+  "splus drops a deterministic, local code-review engine into the coding agent you already run — Claude Code, Codex, OpenCode. It reads your diff, proves what's broken, and hands back only what's worth fixing. Open source (MIT), runs on your machine, no new subscription. A Kiwi Init tool.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://splus.sh"),
-  title: "S+ — precision-first, local code review",
+  title: "splus — juice your coding agent",
   description,
   icons: { icon: "/favicon.svg" },
   openGraph: {
     type: "website",
     url: "https://splus.sh",
-    title: "S+ — only the comments worth reading",
+    title: "splus — don't pay for another agent",
     description,
     images: ["/og.svg"],
   },

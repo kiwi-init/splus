@@ -3,9 +3,9 @@
 import { useEffect } from "react";
 
 /**
- * Light client-side behavior for the landing page. Renders nothing — it runs
- * effects against the server-rendered markup: reveal-on-scroll, the chart
- * draw-on, terminal tabs, copy-to-clipboard, the year, and the scope readout.
+ * Light client-side behavior. Renders nothing — runs effects against the
+ * server-rendered markup: the year, reveal-on-scroll, terminal tabs,
+ * copy-to-clipboard.
  */
 export default function Interactions() {
   useEffect(() => {
@@ -34,26 +34,6 @@ export default function Interactions() {
       cleanups.push(() => io.disconnect());
     } else {
       reveals.forEach((el) => el.classList.add("in-view"));
-    }
-
-    // the precision chart draws when scrolled into view
-    const chart = document.querySelector<HTMLElement>(".chart");
-    if (chart && "IntersectionObserver" in window) {
-      const io2 = new IntersectionObserver(
-        (entries, obs) => {
-          for (const e of entries) {
-            if (e.isIntersecting) {
-              e.target.classList.add("in-view");
-              obs.unobserve(e.target);
-            }
-          }
-        },
-        { threshold: 0.3 },
-      );
-      io2.observe(chart);
-      cleanups.push(() => io2.disconnect());
-    } else if (chart) {
-      chart.classList.add("in-view");
     }
 
     // terminal tabs
@@ -106,16 +86,6 @@ export default function Interactions() {
       copyHandlers.push([btn, handler]);
     });
     cleanups.push(() => copyHandlers.forEach(([b, h]) => b.removeEventListener("click", h)));
-
-    // a little life in the scope readout
-    const readout = document.querySelector<HTMLElement>("[data-snr]");
-    if (readout && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      const id = setInterval(() => {
-        const snr = (18.4 + Math.random() * 1.3).toFixed(1);
-        readout.textContent = `SNR ${snr} dB`;
-      }, 1400);
-      cleanups.push(() => clearInterval(id));
-    }
 
     return () => cleanups.forEach((fn) => fn());
   }, []);
