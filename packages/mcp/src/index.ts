@@ -44,7 +44,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const server = new McpServer({ name: "splus", version: "0.3.1" });
+const server = new McpServer({ name: "splus", version: "0.3.2" });
 
 type ReviewMode = "working" | "staged" | "base" | "all";
 
@@ -182,6 +182,52 @@ function summaryLine(report: Report, suppressedCount: number): string {
   return `Splus: ${s.must_fix} must-fix · ${s.concern} concern · ${s.nit} nit on ${s.files_changed} changed file(s)${supp}.`;
 }
 
+/** Files git considers changed for this mode — what the agent reads for the discovery pass. */
+function changedFiles(root: string, mode: ReviewMode, base: string | null): string[] {
+  const args =
+    mode === "staged"
+      ? ["diff", "--cached", "--name-only", "--diff-filter=d"]
+      : mode === "base"
+        ? ["diff", "--name-only", "--diff-filter=d", `${base ?? ""}...HEAD`]
+        : mode === "all"
+          ? ["ls-files"]
+          : ["diff", "--name-only", "--diff-filter=d", "HEAD"];
+  const r = spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (r.status !== 0) return [];
+  return (r.stdout ?? "").split("\n").map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * The handoff that makes Splus full-power inside a coding agent: the agent IS the
+ * senior reviewer. The deterministic findings are the floor; this directive drives
+ * the agent through the discovery pass determinism can't do (logic / security /
+ * intent), grounded in the cited code + blast radius. No API key — the frontier
+ * model already in the chair does the reasoning.
+ */
+function discoveryDirective(files: string[]): string {
+  const shown = files.slice(0, 40);
+  const more = files.length - shown.length;
+  const list =
+    (shown.map((f) => `  - ${f}`).join("\n") || "  (no changed files)") +
+    (more > 0 ? `\n  …and ${more} more` : "");
+  return [
+    "=== Splus · discovery pass (you are the reviewer) ===",
+    "The findings above are the DETERMINISTIC floor — high-precision, each anchored to a pattern, metric, or cross-file graph edge. They are NOT the whole review. You are the senior reviewer in the chair: read the changed code and find what determinism cannot.",
+    "",
+    "Read the changed files:",
+    list,
+    "",
+    "Hunt for REAL issues, each grounded in a line that exists:",
+    "  • correctness — off-by-one, missing await / unhandled error path, wrong condition, null/undefined deref, resource leak, broken invariant",
+    "  • security — injection / path-traversal / SSRF reachable from input, authz/IDOR gaps, unsafe deserialization, secret & credential handling, command or eval",
+    "  • intent — does the code do what its name, comments, and the change claim? dead, contradictory, or silently fail-open logic",
+    "  • failure & concurrency — races, partial writes, retries, fail-open where it must fail-closed",
+    "  • blast radius — for any changed export with callers (see findings above), open each call site and confirm it still holds",
+    "",
+    "Report what you find as must-fix / concern / nit with file:line and a concrete fix. Prefer silence over speculation — never invent a finding; every claim cites a real line. When the user agrees something is noise, call `dismiss` with its id so Splus learns it.",
+  ].join("\n");
+}
+
 // --- review ----------------------------------------------------------------
 
 server.registerTool(
@@ -195,8 +241,12 @@ server.registerTool(
       "fix, and cross-file blast radius (who calls the changed symbol). Per-repo learned " +
       "suppressions are applied first. No LLM runs unless you pass llm=true (needs " +
       "ANTHROPIC_API_KEY) — otherwise YOU are the reviewer: read these findings, surface the ones " +
-      "that matter, and apply fixes. Pass a finding's `id` to the `dismiss` tool when the user " +
-      "agrees something is noise.",
+      "that matter, and apply fixes. The result ends with a DISCOVERY DIRECTIVE that drives you " +
+      "through a senior-reviewer pass over the changed files (logic / security / intent bugs " +
+      "determinism can't see) — that's the design: Splus grounds you with precise anchors + blast " +
+      "radius, and you, the frontier model in the chair, do the reasoning. Do that pass; don't just " +
+      "relay the findings. Set discovery=false to suppress the directive. Pass a finding's `id` to " +
+      "the `dismiss` tool when the user agrees something is noise.",
     inputSchema: {
       root: z
         .string()
@@ -222,11 +272,17 @@ server.registerTool(
       thorough: z
         .boolean()
         .optional()
-        .describe("With llm=true, also run the discovery pass (frontier model) for logic/security bugs."),
+        .describe("With llm=true, also run the headless discovery pass (frontier API model) for logic/security bugs."),
+      discovery: z
+        .boolean()
+        .optional()
+        .describe(
+          "Append the directive that drives YOU (the agent) through the senior-reviewer discovery pass over the changed files. Default true — this is what makes Splus full-power in an interactive agent (no API key; you are the model).",
+        ),
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
-  async ({ root, mode, base, applyLearnings, llm, thorough }) => {
+  async ({ root, mode, base, applyLearnings, llm, thorough, discovery }) => {
     const repo = rootOf(root);
     const m = (mode ?? "working") as ReviewMode;
     if (m === "base" && !base) return fail("mode='base' requires a `base` ref.");
@@ -273,7 +329,10 @@ server.registerTool(
     }
 
     const payload = toAgentReport(report, suppressed);
-    return ok(`${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(payload, null, 2)}`);
+    const body = `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(payload, null, 2)}`;
+    // The handoff: ground the agent, then drive it through the discovery pass.
+    if (discovery === false) return ok(body);
+    return ok(`${body}\n\n${discoveryDirective(changedFiles(repo, m, base ?? null))}`);
   },
 );
 

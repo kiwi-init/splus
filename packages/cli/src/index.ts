@@ -31,7 +31,7 @@ const program = new Command();
 program
   .name("splus")
   .description("Splus — precision-first code review, locally and in CI")
-  .version("0.3.1");
+  .version("0.3.2");
 
 interface ReviewOpts {
   root: string;

@@ -71,16 +71,21 @@ else
   say "downloading $asset ($ver)"
   dl "$base/$asset" "$tmp/$asset" || die "download failed: $base/$asset (no release for ${os}-${arch}?)"
 
-  # Verify checksum (best-effort: skip cleanly if SHA256SUMS is absent).
-  if dl "$base/SHA256SUMS" "$tmp/SHA256SUMS" 2>/dev/null; then
+  # Verify integrity. For a real release this is MANDATORY — never install an
+  # unverified binary that's about to run on your machine. SPLUS_INSECURE=1
+  # overrides (e.g. a private mirror that publishes no sums).
+  if [ -n "${SPLUS_INSECURE:-}" ]; then
+    warn "SPLUS_INSECURE=1 — skipping checksum verification"
+  else
+    dl "$base/SHA256SUMS" "$tmp/SHA256SUMS" \
+      || die "could not fetch SHA256SUMS for $ver — refusing to install unverified (SPLUS_INSECURE=1 to override)"
     if command -v sha256sum >/dev/null 2>&1; then sum=$(sha256sum "$tmp/$asset" | awk '{print $1}')
     elif command -v shasum >/dev/null 2>&1; then sum=$(shasum -a 256 "$tmp/$asset" | awk '{print $1}')
-    else sum=""; fi
-    if [ -n "$sum" ]; then
-      want=$(grep " $asset\$" "$tmp/SHA256SUMS" | awk '{print $1}' || true)
-      [ -z "$want" ] || [ "$sum" = "$want" ] || die "checksum mismatch for $asset"
-      [ -n "$want" ] && ok "checksum verified"
-    fi
+    else die "no sha256sum/shasum found to verify the download (SPLUS_INSECURE=1 to override)"; fi
+    want=$(awk -v a="$asset" '$2 == a { print $1 }' "$tmp/SHA256SUMS")
+    [ -n "$want" ] || die "no checksum listed for $asset — refusing to install unverified"
+    [ "$sum" = "$want" ] || die "checksum mismatch for $asset (expected ${want}, got ${sum})"
+    ok "checksum verified"
   fi
   tar -xzf "$tmp/$asset" -C "$tmp" || die "extract failed"
 fi
@@ -134,34 +139,49 @@ if [ -z "${SPLUS_NO_WIRE:-}" ]; then
     else warn "Claude Code detected but \`claude mcp add\` failed — add manually: claude mcp add --scope user splus -- $MCP_BIN"; fi
   fi
 
-  # Codex — prefer its CLI, else append to ~/.codex/config.toml.
-  if command -v codex >/dev/null 2>&1; then
-    if codex mcp add splus -- "$MCP_BIN" >/dev/null 2>&1; then ok "Codex"; wired=1
-    else warn "Codex detected but \`codex mcp add\` failed — see ~/.codex/config.toml"; fi
-  elif [ -d "$HOME/.codex" ]; then
+  # Codex — idempotent: if already in config.toml, done; else CLI, else append.
+  if command -v codex >/dev/null 2>&1 || [ -d "$HOME/.codex" ]; then
     toml="$HOME/.codex/config.toml"
-    if ! grep -q '^\[mcp_servers.splus\]' "$toml" 2>/dev/null; then
-      { printf '\n[mcp_servers.splus]\ncommand = "%s"\n' "$MCP_BIN"; } >> "$toml"
+    if grep -q '^\[mcp_servers.splus\]' "$toml" 2>/dev/null; then
+      ok "Codex (already configured)"; wired=1
+    elif command -v codex >/dev/null 2>&1 && codex mcp add splus -- "$MCP_BIN" >/dev/null 2>&1; then
+      ok "Codex"; wired=1
+    else
+      mkdir -p "$HOME/.codex"
+      printf '\n[mcp_servers.splus]\ncommand = "%s"\n' "$MCP_BIN" >> "$toml"
+      ok "Codex (~/.codex/config.toml)"; wired=1
     fi
-    ok "Codex (~/.codex/config.toml)"; wired=1
   fi
 
-  # OpenCode — merge into opencode.json (node is guaranteed present).
+  # OpenCode — merge into the config (node is guaranteed present). NEVER clobber:
+  # if the file exists but doesn't parse, leave it untouched and warn.
   if command -v opencode >/dev/null 2>&1 || [ -d "$HOME/.config/opencode" ]; then
-    ocf="$HOME/.config/opencode/opencode.json"
     mkdir -p "$HOME/.config/opencode"
+    ocf="$HOME/.config/opencode/opencode.json"
+    [ -f "$HOME/.config/opencode/opencode.jsonc" ] && ocf="$HOME/.config/opencode/opencode.jsonc"
     if SPLUS_OCF="$ocf" SPLUS_MCPBIN="$MCP_BIN" node <<'EOF'
 const fs = require("fs");
 const f = process.env.SPLUS_OCF, bin = process.env.SPLUS_MCPBIN;
+let raw = null;
+try { raw = fs.readFileSync(f, "utf8"); } catch {}
 let cfg = {};
-try { cfg = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
+if (raw && raw.trim()) {
+  try {
+    cfg = JSON.parse(raw);
+  } catch (e) {
+    // Exists but won't parse (comments, trailing comma, partial write). Refuse
+    // to overwrite the user's config — warning beats clobbering their settings.
+    console.error("could not parse " + f + " (" + (e.message || e) + ")");
+    process.exit(3);
+  }
+}
 cfg["$schema"] = cfg["$schema"] || "https://opencode.ai/config.json";
 cfg.mcp = cfg.mcp || {};
 cfg.mcp.splus = { type: "local", command: [bin], enabled: true };
 fs.writeFileSync(f, JSON.stringify(cfg, null, 2) + "\n");
 EOF
-    then ok "OpenCode (~/.config/opencode/opencode.json)"; wired=1
-    else warn "OpenCode detected but config merge failed"; fi
+    then ok "OpenCode ($ocf)"; wired=1
+    else warn "OpenCode config left untouched (it didn't parse) — add splus to $ocf by hand"; fi
   fi
 
   [ "$wired" = 1 ] || warn "no coding agent detected — register \`$MCP_BIN\` as an MCP server manually"
