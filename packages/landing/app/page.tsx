@@ -11,10 +11,6 @@ const KIWI = `  · | ·
 ·  /|\\  ·
   · | ·`;
 
-// signal/noise viz — full-cell block chars, so it can never misalign
-const SIGNAL = "▁▂▃▄▅▆▇█▇▆▅▄▃▂▁".repeat(5);
-const NOISE = "·  ".repeat(28);
-
 export default function Home() {
   return (
     <>
@@ -37,10 +33,10 @@ export default function Home() {
               <span className="punch">Juice the one you&rsquo;ve got.</span>
             </h1>
             <p className="lede">
-              splus drops a deterministic review engine into the coding agent you already run —
-              Claude&nbsp;Code, Codex, OpenCode. It reads your diff, proves what&rsquo;s broken, and
-              hands back only what&rsquo;s worth fixing. Local, open source, no new subscription.
+              Plug a deterministic reviewer into the coding agent you already run. It proves
+              what&rsquo;s broken — and ignores the rest.
             </p>
+            <p className="meta"><b>local</b> · <b>open source</b> · <b>mcp-native</b></p>
             <div className="actions">
               <a className="btn btn-solid btn-lg" href="#install">Install</a>
               <a className="btn btn-ghost btn-lg" href={REPO} rel="noopener">Source ↗</a>
@@ -49,23 +45,6 @@ export default function Home() {
           <figure className="hero-figure">
             <img className="hero-img" src="/hero.jpg" alt="" />
           </figure>
-        </section>
-
-        {/* ascii — signal over noise */}
-        <section className="ascii reveal">
-          <div className="viz">
-            <div className="viz-row">
-              <span className="viz-label">signal</span>
-              <pre className="viz-wave" aria-hidden="true">{SIGNAL}</pre>
-              <span className="viz-note">real findings, anchored</span>
-            </div>
-            <div className="viz-row">
-              <span className="viz-label">noise</span>
-              <pre className="viz-floor" aria-hidden="true">{NOISE}</pre>
-              <span className="viz-note">false positives, suppressed</span>
-            </div>
-          </div>
-          <p className="ascii-cap">splus keeps the signal and floors the noise — only what&rsquo;s worth fixing reaches you.</p>
         </section>
 
         {/* install */}
@@ -108,82 +87,97 @@ command = "~/.splus/bin/splus-mcp"
           </div>
         </section>
 
-        {/* the tooling */}
+        {/* the engine */}
         <div className="head reveal">
-          <p className="label">The tooling</p>
-          <h2>What the engine actually does.</h2>
-          <p>Most of the work is deterministic — fast, reproducible, zero inference. Your agent only judges what survives.</p>
+          <p className="label">The engine</p>
+          <h2>Deterministic checks, every finding anchored.</h2>
+          <p>A Rust engine over the tree-sitter AST of your diff — zero inference, fast, reproducible. Your agent only ever judges what survives.</p>
         </div>
-        <section className="grid2 reveal">
-          <div className="cell">
-            <span className="k">diff-scoped</span>
-            <h3>Only the lines you added</h3>
-            <p>Tree-sitter parses the diff and drops everything your change didn&rsquo;t touch. Legacy code is never re-litigated.</p>
-          </div>
-          <div className="cell">
-            <span className="k">collectors</span>
-            <h3>Deterministic checks, anchored</h3>
-            <p>Secrets, cognitive-complexity deltas, SAST, duplication — each finding tied to hard evidence: a match, a metric, a graph edge.</p>
-          </div>
-          <div className="cell">
-            <span className="k">blast radius</span>
-            <h3>What a change can break</h3>
-            <p>A cross-file call graph resolves every caller of what you touched — compiler-grade with a SCIP index, honest heuristics without.</p>
-          </div>
-          <div className="cell">
-            <span className="k">suppression</span>
-            <h3>It learns your noise</h3>
-            <p>Dismiss a finding once and the whole class goes quiet. Learnings live in <code>.splus-cache</code>, in your repo.</p>
-          </div>
-        </section>
+        <ol className="specs reveal">
+          <li className="spec">
+            <div className="spec-key"><span className="spec-n">01</span> diff-scoped</div>
+            <div className="spec-body">
+              <h3>Only the lines you added</h3>
+              <p>Generated, vendored, and lockfiles are skipped; circuit-breakers cap runaway diffs at 600 files. Legacy code is never re-litigated.</p>
+            </div>
+          </li>
+          <li className="spec">
+            <div className="spec-key"><span className="spec-n">02</span> secrets</div>
+            <div className="spec-body">
+              <h3>Keys, tokens, credentials</h3>
+              <p>gitleaks-style rules with Shannon-entropy gating — pure Rust, no external tools, and the entropy gate kills placeholder false positives.</p>
+            </div>
+          </li>
+          <li className="spec">
+            <div className="spec-key"><span className="spec-n">03</span> complexity</div>
+            <div className="spec-body">
+              <h3>The delta, not the size</h3>
+              <p>Cognitive complexity measured base→head — it flags the functions your change made harder to read, not the ones that were always big.</p>
+            </div>
+          </li>
+          <li className="spec">
+            <div className="spec-key"><span className="spec-n">04</span> blast radius</div>
+            <div className="spec-body">
+              <h3>What a change can break</h3>
+              <p>Every cross-file caller of what you touched — compiler-grade from a SCIP index (~97%), honest name+import heuristics without. Each claim carries its confidence.</p>
+            </div>
+          </li>
+          <li className="spec">
+            <div className="spec-key"><span className="spec-n">05</span> adapters</div>
+            <div className="spec-body">
+              <h3>More tools when present</h3>
+              <p>Opt-in semgrep, ast-grep, and osv-scanner run only if they&rsquo;re on PATH — and anything absent is reported as a coverage gap, never hidden.</p>
+            </div>
+          </li>
+        </ol>
 
-        {/* features */}
+        {/* how it runs */}
         <div className="head reveal">
-          <p className="label">Features</p>
-          <h2>Yours, on your machine.</h2>
+          <p className="label">How it runs</p>
+          <h2>Your agent calls it — locally.</h2>
         </div>
-        <section className="grid2 reveal">
-          <div className="cell">
-            <span className="k">local</span>
-            <h3>Nothing leaves your machine</h3>
-            <p>The engine runs on your checkout. No accounts, no telemetry, no diffs uploaded.</p>
-          </div>
-          <div className="cell">
-            <span className="k">mcp-native</span>
-            <h3>Your agent calls it</h3>
-            <p>One MCP server, every coding agent — Claude Code, Codex, OpenCode.</p>
-          </div>
-          <div className="cell">
-            <span className="k">open source</span>
-            <h3>MIT — read it, fork it</h3>
-            <p>The engine is the source of truth. Audit every line; self-host the whole thing.</p>
-          </div>
-          <div className="cell">
-            <span className="k">byo llm</span>
-            <h3>Bring your own model</h3>
-            <p>Provider-neutral, and off by default. The deterministic pass needs no LLM at all.</p>
-          </div>
-        </section>
+        <ol className="specs reveal">
+          <li className="spec">
+            <div className="spec-key"><span className="spec-n">01</span> mcp</div>
+            <div className="spec-body">
+              <h3>Five tools over a local server</h3>
+              <p><code>review</code>, <code>dismiss</code>, <code>mute</code>, <code>learnings</code>, <code>index</code> — over stdio, zero-network. Claude Code, Codex, OpenCode. Your agent stays the reviewer.</p>
+            </div>
+          </li>
+          <li className="spec">
+            <div className="spec-key"><span className="spec-n">02</span> it learns</div>
+            <div className="spec-body">
+              <h3>Dismiss once, it stays quiet</h3>
+              <p>Three suppression tiers — exact, rule-mute, and semantic (cosine) — scoped per repo in <code>.splus-cache</code>. Precision compounds as it learns your noise.</p>
+            </div>
+          </li>
+          <li className="spec">
+            <div className="spec-key"><span className="spec-n">03</span> byo llm</div>
+            <div className="spec-body">
+              <h3>Optional, off by default</h3>
+              <p>Set a key and it adds triage (Haiku) plus a deeper discovery pass (Opus) for the logic bugs determinism can&rsquo;t see. The deterministic path needs no model.</p>
+            </div>
+          </li>
+          <li className="spec">
+            <div className="spec-key"><span className="spec-n">04</span> local · MIT</div>
+            <div className="spec-body">
+              <h3>Nothing leaves your machine</h3>
+              <p>Runs on your checkout — no account, no telemetry, nothing uploaded. Open source under MIT: read it, fork it, self-host it.</p>
+            </div>
+          </li>
+        </ol>
       </main>
 
       {/* footer */}
       <footer className="foot">
-        <div className="foot-left">
-          <a className="brand" href="#top"><b>splus</b> — a kiwi init tool</a>
-          <a className="kiwi-sign" href={ORG} rel="noopener" aria-label="A Kiwi Init project — kiwiinit.com">
-            <pre className="kiwi-ascii" aria-hidden="true">{KIWI}</pre>
-            <span className="kiwi-by">
-              <span className="kiwi-tag">a kiwi init project</span>
-              <span className="kiwi-url">kiwiinit.com →</span>
-            </span>
-          </a>
-        </div>
-        <nav className="foot-links" aria-label="Footer">
-          <a href={REPO} rel="noopener">GitHub</a>
-          <a href="https://splus.sh/install.sh">install.sh</a>
-          <a href={ORG} rel="noopener">Kiwi Init ↗</a>
-        </nav>
-        <p className="foot-legal">© <span data-year="">2026</span> splus · a kiwi init tool · MIT</p>
+        <a className="kiwi-sign" href={ORG} rel="noopener" aria-label="A Kiwi Init project — kiwiinit.com">
+          <pre className="kiwi-ascii" aria-hidden="true">{KIWI}</pre>
+          <span className="kiwi-by">
+            <span className="kiwi-tag">a kiwi init project</span>
+            <span className="kiwi-url">kiwiinit.com →</span>
+          </span>
+        </a>
+        <p className="foot-legal">© <span data-year="">2026</span> splus · MIT</p>
       </footer>
 
       <Interactions />
