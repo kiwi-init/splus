@@ -1,0 +1,151 @@
+# Architecture
+
+Splus has one job: make the coding agent already in your editor a **disciplined,
+diff-scoped, grounded, learning reviewer**. It does that with a deterministic Rust
+engine (the grounding) and a thin TypeScript layer (the orchestration + memory).
+Nothing leaves your machine.
+
+```mermaid
+flowchart TB
+    agent["🤖 Your coding agent<br/>Claude Code · Codex · OpenCode"]
+    mcp["packages/mcp<br/><i>local MCP server (stdio)</i>"]
+    engine["crates/splus-engine<br/><b>deterministic floor</b> (Rust)"]
+    triage["packages/triage<br/><i>multi-pass LLM review</i>"]
+    supp["packages/suppression<br/><i>per-repo memory</i>"]
+    shared["packages/shared<br/><i>Finding model + runEngine</i>"]
+
+    agent <-->|MCP tools| mcp
+    mcp -->|grounds with| engine
+    mcp -->|optional · key or claude -p| triage
+    mcp -->|dismiss / accept| supp
+    engine --> shared
+    triage --> shared
+    shared -.->|spawns the binary| engine
+
+    classDef rust fill:#fde2c4,stroke:#c77,color:#000
+    classDef ts fill:#d6e4ff,stroke:#57c,color:#000
+    class engine rust
+    class mcp,triage,supp,shared ts
+```
+
+The engine **grounds**; the agent **reviews**. Splus never claims to be a smarter
+model than the one you already run — it makes that model disciplined.
+
+## The pieces
+
+| Package | Language | Role |
+|---|---|---|
+| `crates/splus-engine` | Rust | The deterministic floor. Parses the diff, runs collectors, emits canonical `Finding`s. The source of truth — zero inference. |
+| `packages/shared` | TS | The canonical `Finding` / `Report` model (mirrors the Rust serde model) + `runEngine`, which shells out to the binary and validates its JSON. |
+| `packages/suppression` | TS | Per-repo learned memory: suppress what you `dismiss`, reinforce what you `accept`. The compounding moat. |
+| `packages/triage` | TS | The optional LLM layer (needs a key, or `claude -p`). Runs the multi-pass review headlessly. Strictly downstream of the engine. |
+| `packages/mcp` | TS | The local stdio MCP server your agent connects to. Wires the engine + suppression + triage together and exposes the tools. |
+
+## The deterministic floor (the engine)
+
+Everything is **diff-scoped** — only newly-added lines are ever considered
+(clean-as-you-code).
+
+```mermaid
+flowchart LR
+    diff["git diff<br/><i>added lines only</i>"] --> guard{{"Guard<br/>circuit breakers"}}
+    guard --> C
+    subgraph C["Collectors · diff-scoped · zero inference"]
+        direction TB
+        secrets["secrets<br/><i>regex + entropy</i>"]
+        heur["heuristics<br/><i>+ native security sinks</i>"]
+        ext["external SARIF<br/><i>gitleaks · osv · semgrep</i>"]
+        blast["blast radius<br/><i>SCIP / heuristic</i>"]
+        cx["complexity<br/><i>opt-in (--metrics)</i>"]
+    end
+    C --> dedup["dedup → severity sort → tier"]
+    dedup --> out["Findings<br/><b>must-fix · concern · nit</b><br/><i>each with a provenance anchor</i>"]
+```
+
+The pipeline (`crates/splus-engine/src/pipeline.rs`):
+
+0. **Guard** — circuit breakers (max files / added lines, generated/vendored) bound cost.
+1. **Diff** — `git` added-line set per changed file.
+2. **Collectors** (`src/collectors/`):
+   - `secrets` — regex + Shannon-entropy gate (AWS, GitHub, private keys, …).
+   - `heuristics` — language-gated syntactic rules incl. **native security sinks** (unsafe `yaml.load`/`pickle`/`eval`/`shell=True`, SQL string-interpolation, TLS-verify-off, JS SQL templates, `dangerouslySetInnerHTML`).
+   - `external` — best-effort SARIF adapters **if present on PATH**: gitleaks, osv-scanner, semgrep (offline only), ast-grep.
+   - `blast_radius` — cross-file caller graph for changed exports. **Precise (SCIP, compiler-grade)** when an `index.scip` exists; name+import heuristic otherwise.
+   - `complexity` — cognitive-complexity delta. **Opt-in (`--metrics`)** — near-zero bug correlation, off by default so it never dilutes the floor.
+3. **Dedup → severity sort → tier** (`must-fix` / `concern` / `nit`).
+
+Every `Finding` carries a provenance **anchor** (`secret` / `metric` / `graph-edge`
+/ `sarif` / `heuristic`) and a stable fingerprint. Deep analysis (symbols, complexity,
+blast radius) covers **TypeScript / JavaScript / TSX / Python**; other languages
+degrade to secrets + heuristics.
+
+## The review protocol (the agent)
+
+The engine grounds; the agent reviews. Two ways the agent runs the protocol:
+
+- **Interactive** (no key): `review` returns the grounded findings + a **discovery
+  directive** that drives *your* agent through the senior-reviewer pass — and tells
+  it to VERIFY (refute) each finding before posting.
+- **Headless** (`llm: true`, key or `claude -p`): `packages/triage` runs the full
+  pipeline autonomously:
+
+```mermaid
+flowchart LR
+    d["<b>detect</b><br/>engine + LLM over the diff<br/><i>maximize recall</i>"]
+    i["<b>impact</b><br/>attach blast radius"]
+    t["<b>triage</b><br/>keep / suppress<br/><i>precision</i>"]
+    r["<b>remediate</b><br/>concrete fix"]
+    v["<b>verify</b><br/>refute false findings<br/><i>precision gate</i>"]
+    d --> i --> t --> r --> v --> out["review comments<br/><i>+ learned memory applied</i>"]
+
+    classDef recall fill:#dff5e1,stroke:#3a7,color:#000
+    classDef precision fill:#ffe9e0,stroke:#d75,color:#000
+    class d recall
+    class t,v precision
+```
+
+  - **detect** — engine findings (grounded) + an LLM pass over the **diff** that hunts every plausible bug (recall-first).
+  - **impact** — cross-file blast radius attached so the review reasons about consequences.
+  - **triage** — keep/suppress + severity + confidence (precision).
+  - **remediate** — a concrete fix per kept finding.
+  - **verify** — an adversarial pass that **refutes** plausible-but-wrong findings and drops them. This is the precision gate that keeps discovery from leaking noise.
+
+## Memory (`dismiss` / `accept`)
+
+Stored per-repo in `.splus-cache/learnings.json` (checked into your repo). Negative
+memory suppresses noise you `dismiss` (exact · rule · semantic); positive memory
+reinforces findings you `accept`. Security findings are exempt from *semantic*
+suppression — a dismissed test fixture can never silence a real secret.
+
+```mermaid
+flowchart LR
+    f["new finding"] --> q{"learned on<br/>this repo?"}
+    q -->|"dismissed before<br/>(exact · rule · semantic)"| s["🔇 suppress"]
+    q -->|"resembles one you accepted"| r["⬆️ reinforce<br/><i>rank higher</i>"]
+    q -->|"new"| k["surface"]
+
+    classDef neg fill:#ffe0e0,stroke:#d66,color:#000
+    classDef pos fill:#e0f5e0,stroke:#3a7,color:#000
+    class s neg
+    class r pos
+```
+
+## The MCP tools
+
+`review` · `dismiss` · `accept` · `mute` · `learnings` · `index`. See the
+[README](../README.md#the-mcp-tools).
+
+## Distribution
+
+`install.sh` downloads the engine + the bundled MCP server (`dist-release/mcp.cjs`)
+into `~/.splus`, provisions the gitleaks/osv-scanner adapters, and wires the MCP
+server into every coding agent it finds. Releases are cut by tagging `v*`
+(`.github/workflows/release.yml`).
+
+## Measuring quality
+
+`bench/run.mjs` is an internal **regression gate** (the floor must catch planted
+sinks and stay silent on benign code — *not* a competitive claim). Competitive
+scoring lives in `bench/martian/` — the independent
+[Martian Code Review Bench](https://github.com/withmartian/code-review-benchmark),
+runnable with `claude -p` (no API key). See [`bench/martian/README.md`](../bench/martian/README.md).

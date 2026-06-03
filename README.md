@@ -83,10 +83,12 @@ Your agent connects to the local server and calls these:
 | `learnings` | List what's been learned on this repo.                                       |
 | `index`     | Build a SCIP index locally for the precise (compiler-grade) blast-radius tier. |
 
-With an LLM key set, `review` runs the full protocol (detect → impact → triage → remediate →
-verify); without one it returns the grounded deterministic floor and hands your agent the review.
-Learnings (both `dismiss` and `accept`) are stored per-repo in `.splus-cache/learnings.json` — they
-stay in your checkout.
+With an LLM key (or `claude -p`), `review` runs the full protocol (detect → impact → triage →
+remediate → verify); without one it returns the grounded deterministic floor and hands your agent
+the review. Learnings (both `dismiss` and `accept`) are stored per-repo in
+`.splus-cache/learnings.json` — they stay in your checkout.
+
+**Full reference: [`docs/TOOLS.md`](docs/TOOLS.md)** — every tool, parameter, and return shape.
 
 ## In CI / pre-commit
 
@@ -147,17 +149,25 @@ Cutting a release: tag `v*` and push — `.github/workflows/release.yml` cross-c
 engine for macOS/Linux, bundles the MCP server, and publishes a GitHub Release that `install.sh`
 pulls from. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+## Docs
+
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — how the engine + review protocol work (with diagrams).
+- **[docs/TOOLS.md](docs/TOOLS.md)** — the MCP tools your agent calls (every param + return).
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — build, test, and the release process.
+- **[bench/martian/](bench/martian/)** — score Splus on the independent Martian Code Review Bench.
+
 ## Repo layout
 
 ```
 crates/splus-engine/   # the deterministic engine (Rust) — the source of truth
 packages/
   shared/              # canonical Finding model (TS, mirrors Rust) + engine runner
-  suppression/         # learned per-repo noise filter (exact · rule · semantic)
-  triage/              # optional LLM layer — judge/explain/suppress (downstream of the engine)
+  suppression/         # per-repo memory — suppress (dismiss) + reinforce (accept)
+  triage/              # optional LLM layer — the multi-pass review (downstream of the engine)
   mcp/                 # the local MCP server your agent talks to
+bench/                 # regression gate (run.mjs) + the Martian benchmark adapter (martian/)
+docs/                  # ARCHITECTURE.md · TOOLS.md
 install.sh             # the one-line installer
-docs/RESEARCH.md       # competitive + tooling research
 ```
 
 The marketing site (splus.sh) lives in its own repo: **[kiwi-init/splus-lp](https://github.com/kiwi-init/splus-lp)**.
