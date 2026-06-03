@@ -40,6 +40,14 @@ export interface TriageOptions {
   /** Run the discovery pass (frontier model) for logic/security bugs. Default false. */
   thorough?: boolean;
   /**
+   * Run the adversarial VERIFY stage over LLM-discovered findings: a skeptical
+   * pass that tries to refute each one against the cited code and drops the ones
+   * that don't hold up. The precision gate that keeps discovery from leaking the
+   * plausible-but-wrong comments that sink reviewer trust. Default: follows `thorough`.
+   */
+  verify?: boolean;
+  verifyModel?: string;
+  /**
    * The full set of changed files (the real change surface) for the discovery
    * pass to read. Discovery's whole job is to find bugs determinism missed, so it
    * must look at changed files that produced NO deterministic finding — not only
@@ -76,10 +84,15 @@ export interface TriagedReport extends Omit<Report, "findings"> {
   llm: {
     triageModel: string;
     discoveryModel?: string;
+    verifyModel?: string;
     triaged: number;
     kept: number;
     suppressed: number;
     discovered: number;
+    /** Discovered findings that survived the adversarial VERIFY stage. */
+    verified: number;
+    /** Discovered findings dropped by VERIFY (refuted against the code). */
+    refuted: number;
     inputTokens: number;
     outputTokens: number;
     cachedInputTokens: number;
@@ -159,12 +172,53 @@ const DISCOVERY_TOOL = {
   },
 } as const;
 
+const VERIFY_SYSTEM = `You are a SKEPTICAL senior reviewer doing the final gate before comments are posted on a pull request. Each candidate below is a finding another reviewer plans to post. Your job is to REFUTE it: read the cited code and decide whether the claimed issue is real and actually demonstrated by that exact location.
+
+A reviewer's credibility dies from wrong comments, so be strict. Mark verified=false when:
+- the cited line does not clearly demonstrate the claimed issue,
+- the "bug" is actually handled elsewhere in the shown code (guard, await, try/except, validation),
+- the claim is speculative ("could", "might", "if untrusted") without evidence in the code,
+- you are not confident the comment would survive a maintainer's pushback.
+
+Only verified=true when a competent maintainer would agree the issue is real and worth fixing. Prefer dropping a doubtful comment over posting a wrong one. Return a verdict for every candidate id.`;
+
+const VERIFY_TOOL = {
+  name: "submit_verifications",
+  description: "For each candidate, decide whether it holds up against the actual code.",
+  input_schema: {
+    type: "object",
+    properties: {
+      verifications: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "The candidate's id, verbatim." },
+            verified: { type: "boolean", description: "true ONLY if the cited code clearly demonstrates the issue." },
+            confidence: { type: "number", description: "0..1 belief the issue is real." },
+            reason: { type: "string", description: "Why it holds up, or why it was refuted." },
+          },
+          required: ["id", "verified", "confidence", "reason"],
+        },
+      },
+    },
+    required: ["verifications"],
+  },
+} as const;
+
 interface Verdict {
   id: string;
   decision: "keep" | "suppress";
   confidence: number;
   rationale: string;
   suggestion?: string;
+}
+
+interface Verification {
+  id: string;
+  verified: boolean;
+  confidence: number;
+  reason: string;
 }
 
 /** Triage (and optionally discover) findings, returning an enriched report. */
@@ -234,6 +288,45 @@ export async function triage(report: Report, opts: TriageOptions): Promise<Triag
     kept.push(...news);
   }
 
+  // --- VERIFY (adversarial precision gate) ---
+  // Engine-anchored findings are already grounded — we trust them. The LLM's
+  // free-form discoveries are where plausible-but-wrong comments come from, so a
+  // skeptical pass tries to refute each one against the cited code and drops the
+  // ones that don't survive. This is the lever that buys precision over a bare
+  // model: it never ADDS noise, it only removes it.
+  let verifyModel: string | undefined;
+  let verified = 0;
+  let refuted = 0;
+  const doVerify = opts.verify ?? opts.thorough ?? false;
+  const toVerify = kept.filter((f) => f.llmOnly);
+  if (doVerify && toVerify.length > 0) {
+    verifyModel = opts.verifyModel ?? discoveryModel ?? DISCOVERY_MODEL;
+    const vmap = await verifyFindings(client, verifyModel, opts.root, toVerify, accUsage, concurrency);
+    const survivors: TriagedFinding[] = [];
+    for (const f of kept) {
+      if (!f.llmOnly) {
+        survivors.push(f);
+        continue;
+      }
+      const v = vmap.get(f.id);
+      // Strict gate: drop only on an explicit refutation. A missing verdict
+      // fails OPEN (keep) so a flaky verify call can't silently swallow findings.
+      if (v && v.verified === false) {
+        refuted++;
+        suppressed.push({
+          ...f,
+          verdict: "suppress",
+          rationale: `failed verification: ${v.reason}`,
+        });
+      } else {
+        verified++;
+        survivors.push(v ? { ...f, llmConfidence: Math.min(f.llmConfidence, v.confidence) } : f);
+      }
+    }
+    kept.length = 0;
+    kept.push(...survivors);
+  }
+
   kept.sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || b.llmConfidence - a.llmConfidence);
 
   return {
@@ -249,10 +342,13 @@ export async function triage(report: Report, opts: TriageOptions): Promise<Triag
     llm: {
       triageModel,
       discoveryModel,
+      verifyModel,
       triaged: report.findings.length,
-      kept: kept.length - discovered,
+      kept: kept.length,
       suppressed: suppressed.length,
       discovered,
+      verified,
+      refuted,
       inputTokens: usage.input,
       outputTokens: usage.output,
       cachedInputTokens: usage.cached,
@@ -366,6 +462,60 @@ interface DiscoveryItem {
   rationale: string;
   suggestion?: string;
   confidence: number;
+}
+
+// --- verify (adversarial precision gate) ---
+
+/**
+ * Skeptically re-check each discovered finding against the cited code, sharded by
+ * file. Returns a verdict per finding id; callers drop only explicit refutations.
+ */
+async function verifyFindings(
+  client: LLMClient,
+  model: string,
+  root: string,
+  findings: TriagedFinding[],
+  accUsage: (r: LLMResponse) => void,
+  concurrency: number,
+): Promise<Map<string, Verification>> {
+  const byFile = new Map<string, TriagedFinding[]>();
+  for (const f of findings) {
+    const arr = byFile.get(f.file) ?? [];
+    arr.push(f);
+    byFile.set(f.file, arr);
+  }
+  const out = new Map<string, Verification>();
+  await mapLimit([...byFile.entries()], concurrency, async ([file, fs]) => {
+    const res = await client.messages.create({
+      model,
+      max_tokens: 2048,
+      system: [{ type: "text", text: VERIFY_SYSTEM, cache_control: { type: "ephemeral" } }],
+      tools: [VERIFY_TOOL],
+      tool_choice: { type: "tool", name: "submit_verifications" },
+      messages: [{ role: "user", content: verifyPrompt(root, file, fs) }],
+    });
+    accUsage(res);
+    for (const v of parseTool<{ verifications: Verification[] }>(res)?.verifications ?? []) {
+      out.set(v.id, v);
+    }
+  });
+  return out;
+}
+
+function verifyPrompt(root: string, file: string, findings: TriagedFinding[]): string {
+  const src = readFileSafe(join(root, file));
+  const lines = src ? src.split("\n") : [];
+  const parts: string[] = [`File: ${file}`, ""];
+  for (const f of findings) {
+    parts.push(`--- candidate ${f.id} ---`);
+    parts.push(`claim (${f.severity} ${f.category}): ${f.title}`);
+    parts.push(`rationale: ${f.rationale}`);
+    parts.push("code:");
+    parts.push(contextWindow(lines, f.region.start_line, 8));
+    parts.push("");
+  }
+  parts.push("Refute or confirm every candidate id above.");
+  return parts.join("\n");
 }
 
 // --- prompt construction ---
