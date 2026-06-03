@@ -168,8 +168,9 @@ async function runSplusAgent(dir, files) {
   const { triage } = await import(join(ROOT, "packages", "triage", "dist", "index.js"));
   const { runEngine } = await import(join(ROOT, "packages", "shared", "dist", "index.js"));
   const report = await runEngine({ root: dir, mode: { kind: "staged" } });
+  const diff = sh("git", ["diff", "--cached"], { cwd: dir });
   const client = await llmClient();
-  const t = await triage(report, { root: dir, thorough: true, verify: true, changedFiles: files, client });
+  const t = await triage(report, { root: dir, thorough: true, verify: true, changedFiles: files, diff, client });
   return t.findings.map((f) => ({
     file: f.file,
     line: f.region?.start_line ?? 0,

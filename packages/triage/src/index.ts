@@ -55,6 +55,12 @@ export interface TriageOptions {
    * for backward compatibility), and a note is emitted so the gap is visible.
    */
   changedFiles?: string[];
+  /**
+   * The unified diff of the change (added lines are where bugs live). When given,
+   * the discovery pass reviews the DIFF — not whole files blind — which is the
+   * single biggest recall lever. Without it, discovery falls back to full files.
+   */
+  diff?: string;
   /** Max concurrent LLM calls. Default 5. */
   concurrency?: number;
   /** Override models. */
@@ -283,7 +289,7 @@ export async function triage(report: Report, opts: TriageOptions): Promise<Triag
     discoveryModel = opts.discoveryModel ?? DISCOVERY_MODEL;
     const { files, notes } = selectDiscoverySurface(opts.changedFiles, [...byFile.keys()]);
     extraNotes.push(...notes);
-    const news = await discover(client, discoveryModel, opts.root, files, accUsage);
+    const news = await discover(client, discoveryModel, opts.root, files, opts.diff, accUsage);
     discovered = news.length;
     kept.push(...news);
   }
@@ -391,6 +397,7 @@ async function discover(
   model: string,
   root: string,
   files: string[],
+  diff: string | undefined,
   accUsage: (r: LLMResponse) => void,
 ): Promise<TriagedFinding[]> {
   const blocks = files
@@ -401,7 +408,14 @@ async function discover(
     })
     .filter(Boolean)
     .join("\n\n");
-  if (!blocks) return [];
+  if (!blocks && !diff) return [];
+
+  // The DIFF is the focus (bugs live in changed lines); the full files are
+  // context for reasoning. Lead with the diff so the model reviews the change,
+  // not the whole file blind — the single biggest recall lever.
+  const userContent = diff
+    ? `Review this DIFF. The added/changed lines (\`+\`) are where bugs are most likely; cite line numbers from the FULL FILES below.\n\n=== DIFF (the change under review) ===\n${diff.slice(0, 60000)}\n\n=== FULL FILES (numbered, for context + line numbers) ===\n${blocks}`
+    : `Changed files:\n\n${blocks}`;
 
   const res = await client.messages.create({
     model,
@@ -410,13 +424,14 @@ async function discover(
       {
         type: "text",
         text:
-          "You are Splus in deep-review mode. Find real logic, security, and correctness bugs that pattern-based tools miss (broken auth/IDOR, off-by-one, missing await, unhandled error paths, intent/spec mismatches). Report ONLY high-confidence issues, each citing a line that exists in the provided files. Prefer silence over speculation.",
+          "You are Splus in deep-review mode, reviewing the NEW/changed code in a diff. Find EVERY plausible bug the change introduces: logic errors, off-by-one, missing await/unhandled error paths, null/undefined, broken invariants, resource leaks, race conditions, security (injection, SSRF, path-traversal, authz/IDOR, unsafe deserialization, secrets), breaking API/signature changes, and intent/spec mismatches (code that doesn't do what its name/comment/PR claims). " +
+          "Prioritize RECALL: a separate verification pass removes false positives, so err toward flagging anything a careful senior reviewer might raise — but only about the CHANGED code, and each finding MUST cite a real line number from the provided files. Don't flag pre-existing code the diff didn't touch.",
         cache_control: { type: "ephemeral" },
       },
     ],
     tools: [DISCOVERY_TOOL],
     tool_choice: { type: "tool", name: "report_findings" },
-    messages: [{ role: "user", content: `Changed files:\n\n${blocks}` }],
+    messages: [{ role: "user", content: userContent }],
   });
   accUsage(res);
 

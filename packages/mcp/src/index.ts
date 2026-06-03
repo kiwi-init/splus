@@ -74,6 +74,18 @@ function learningsPath(root: string): string {
   return join(root, ".splus-cache", "learnings.json");
 }
 
+/** The raw unified diff for a review mode — fed to the discovery pass for recall. */
+function diffText(repo: string, mode: ReviewMode, base: string | null): string | undefined {
+  const args =
+    mode === "staged" ? ["diff", "--cached"]
+    : mode === "base" ? ["diff", `${base}...HEAD`]
+    : mode === "all" ? null
+    : ["diff"];
+  if (!args) return undefined;
+  const r = spawnSync("git", args, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  return r.status === 0 ? r.stdout : undefined;
+}
+
 function toMode(mode: ReviewMode, base: string | null): DiffMode {
   switch (mode) {
     case "staged":
@@ -340,6 +352,7 @@ server.registerTool(
           root: repo,
           thorough: thorough === true,
           changedFiles: listChangedFiles(repo, dmode),
+          diff: diffText(repo, m, base ?? null),
         });
         return ok(
           `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(toAgentTriaged(triaged), null, 2)}${reinforcedNote}${preciseNote}`,
