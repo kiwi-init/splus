@@ -3,9 +3,11 @@
 All notable changes to Splus. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org) (pre-1.0: minor versions may break).
 
-## [Unreleased] — precision-first
+## [0.5.0] — precision-first
 
-The engine earns its keep; the review becomes a real protocol; the pitch gets honest.
+The engine earns its keep; the review becomes a real protocol; the pitch gets honest. Measured on
+the independent Martian bench (via `claude -p`, calibrated judge): **F1 73% vs CodeRabbit 36%** on
+Sentry PRs.
 
 ### Added
 - **Native security sinks** in the engine (local, zero-dep, diff-scoped): unsafe `yaml.load` /
@@ -43,5 +45,5 @@ The engine earns its keep; the review becomes a real protocol; the pitch gets ho
 - The engine + MCP server + (then-bundled) CLI and landing page. Deterministic pipeline, learned
   suppression, optional LLM triage + discovery.
 
-[Unreleased]: https://github.com/kiwi-init/splus/compare/v0.4.0...HEAD
+[0.5.0]: https://github.com/kiwi-init/splus/releases/tag/v0.5.0
 [0.4.0]: https://github.com/kiwi-init/splus/releases/tag/v0.4.0
