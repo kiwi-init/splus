@@ -31,8 +31,7 @@ jobs:
       - run: pnpm -r typecheck
       - name: unit tests
         run: node --test packages/suppression/dist/*.test.js packages/triage/dist/*.test.js
-      - name: bundle smoke test (release artifacts build + parse)
+      - name: bundle smoke test (release artifact builds + parses)
         run: |
           pnpm build:release
-          node --check dist-release/cli.cjs
           node --check dist-release/mcp.cjs

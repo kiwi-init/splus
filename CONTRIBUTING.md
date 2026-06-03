@@ -1,7 +1,7 @@
 # Contributing to Splus
 
 Thanks for helping make code review quieter. Splus is a deterministic Rust engine plus a thin
-TypeScript layer (CLI + local MCP server). It runs entirely locally — there's no service to
+TypeScript layer (a local MCP server). It runs entirely locally — there's no service to
 stand up.
 
 ## Layout
@@ -10,9 +10,9 @@ stand up.
 - `packages/shared/` — the canonical `Finding`/`Report` model (TS, mirrors the Rust serde model) + `runEngine`, which shells out to the engine binary.
 - `packages/suppression/` — the learned per-repo noise filter (exact · rule · semantic).
 - `packages/triage/` — the optional LLM layer, strictly downstream of the engine.
-- `packages/cli/` — the `splus` CLI.
 - `packages/mcp/` — the local stdio MCP server your agent connects to.
-- `packages/landing/` — the splus.sh marketing site (also serves `install.sh`).
+
+The splus.sh marketing site lives in its own repo, [kiwi-init/splus-lp](https://github.com/kiwi-init/splus-lp).
 
 ## Develop
 
@@ -25,12 +25,14 @@ pnpm -r typecheck
 node --test packages/suppression/dist/*.test.js packages/triage/dist/*.test.js   # unit tests
 ```
 
-Point the TS surfaces at your freshly built engine:
+Run the freshly built engine directly:
 
 ```sh
-export SPLUS_ENGINE=$PWD/target/release/splus-engine
-node packages/cli/dist/index.js review --staged
+target/release/splus-engine review --staged --format pretty
 ```
+
+The MCP server (what your agent talks to) shells out to the engine; point it at your build with
+`SPLUS_ENGINE=$PWD/target/release/splus-engine node packages/mcp/dist/index.js`.
 
 The engine model (`crates/splus-engine/src/model.rs`) and the TS model
 (`packages/shared/src/index.ts`) must stay in lockstep — change them together.
@@ -44,7 +46,7 @@ git tag v0.3.1 && git push --tags
 ```
 
 `.github/workflows/release.yml` cross-compiles the engine for macOS/Linux (arm64 + x64),
-bundles the CLI + MCP server into single `.cjs` files (`scripts/build-release.mjs`), and
+bundles the MCP server into a single `.cjs` file (`scripts/build-release.mjs`), and
 publishes a GitHub Release with per-platform tarballs + `SHA256SUMS`. `install.sh` pulls these
 from the stable `releases/latest/download/splus-<os>-<arch>.tar.gz` URL.
 

@@ -26,7 +26,7 @@ agent it finds (Claude Code, Codex, OpenCode). Then, in your agent:
 
 > "review my staged changes with splus"
 
-Requirements: **git** and **node ≥ 20**. Update anytime with `splus update`.
+Requirements: **git** and **node ≥ 20**. Update anytime by re-running the one-liner.
 
 <details>
 <summary>Wire an agent manually</summary>
@@ -73,24 +73,21 @@ Your agent connects to the local server and calls these:
 
 Learnings are stored per-repo in `.splus-cache/learnings.json` — they stay in your checkout.
 
-## The CLI
+## In CI / pre-commit
 
-The installer also puts a `splus` CLI on your PATH (handy for pre-commit hooks / CI):
+The installer also puts the deterministic engine, `splus-engine`, on your PATH — no
+account, no token, runs in milliseconds. Use it as a non-blocking gate or in a hook:
 
 ```sh
-splus review --staged                 # pretty, deterministic, $0
-splus review --staged --agent         # compact JSON for an agent to apply fixes
-splus review --base origin/main       # PR-style base..HEAD
-splus dismiss <finding-id>            # stop flagging this + close variants
-splus mute hygiene.python-print       # mute a whole rule
-splus learnings                       # what it has learned on this repo
-splus index                           # → .splus-cache/index.scip (precise blast radius)
-splus init-hooks --fail-on high       # install a pre-commit hook (non-blocking on engine error)
-splus update                          # update to the latest release
-
-# Optional LLM layer (off by default; needs ANTHROPIC_API_KEY):
-ANTHROPIC_API_KEY=sk-ant-... splus review --staged --llm
+splus-engine review --staged --format pretty             # pretty, deterministic, $0
+splus-engine review --staged --format json               # JSON for an agent / tooling
+splus-engine review --base origin/main --format sarif    # PR-style → GitHub code scanning
+splus-engine review --staged --fail-on high              # exit non-zero at/above a severity
 ```
+
+The engine emits *only* grounded, diff-scoped findings. Learned suppression
+(`dismiss` / `mute` / `learnings`) and the optional LLM judgment live in the agent
+flow over MCP — that's where the reviewing happens.
 
 ## How it works — the deterministic pipeline (zero inference)
 
@@ -121,7 +118,7 @@ then it talks only to the provider you chose.
 cargo build --release        # the engine → target/release/splus-engine
 cargo test                   # engine tests
 pnpm install && pnpm -r build
-pnpm build:release           # bundle the CLI + MCP server → dist-release/{cli,mcp}.cjs
+pnpm build:release           # bundle the MCP server → dist-release/mcp.cjs
 ```
 
 Run the engine directly if you like:
@@ -132,7 +129,7 @@ target/release/splus-engine review --base main --format sarif   # GitHub code sc
 ```
 
 Cutting a release: tag `v*` and push — `.github/workflows/release.yml` cross-compiles the
-engine for macOS/Linux, bundles the CLI + MCP, and publishes a GitHub Release that `install.sh`
+engine for macOS/Linux, bundles the MCP server, and publishes a GitHub Release that `install.sh`
 pulls from. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Repo layout
@@ -143,12 +140,12 @@ packages/
   shared/              # canonical Finding model (TS, mirrors Rust) + engine runner
   suppression/         # learned per-repo noise filter (exact · rule · semantic)
   triage/              # optional LLM layer — judge/explain/suppress (downstream of the engine)
-  cli/                 # the `splus` CLI
   mcp/                 # the local MCP server your agent talks to
-  landing/             # splus.sh marketing site (serves install.sh)
 install.sh             # the one-line installer
 docs/RESEARCH.md       # competitive + tooling research
 ```
+
+The marketing site (splus.sh) lives in its own repo: **[kiwi-init/splus-lp](https://github.com/kiwi-init/splus-lp)**.
 
 ## License
 
