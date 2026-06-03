@@ -20,6 +20,9 @@ pub struct Engine {
     pub mode: DiffMode,
     /// When true, run the (heavier) tree-sitter analysis tier.
     pub deep: bool,
+    /// When true, also emit cognitive-complexity maintainability metrics. Off by
+    /// default — complexity is near-noise and would dilute the grounded floor.
+    pub metrics: bool,
     /// Explicit path to a SCIP index for the precise blast-radius tier.
     /// When None, the engine auto-detects `index.scip` / `.splus-cache/index.scip`.
     pub scip_path: Option<PathBuf>,
@@ -27,7 +30,7 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(root: PathBuf, mode: DiffMode) -> Engine {
-        Engine { root, mode, deep: true, scip_path: None }
+        Engine { root, mode, deep: true, metrics: false, scip_path: None }
     }
 
     /// Resolve the SCIP index path: explicit override, else conventional locations.
@@ -92,7 +95,7 @@ impl Engine {
         let mut collectors: Vec<Box<dyn Collector>> =
             vec![Box::new(Secrets), Box::new(Heuristics), Box::new(External)];
         if run_deep {
-            collectors.extend(deep_collectors());
+            collectors.extend(deep_collectors(self.metrics));
         }
 
         let mut findings: Vec<Finding> = Vec::new();
@@ -143,6 +146,6 @@ impl Engine {
 
 /// Tree-sitter / external collectors are wired in later steps. Keeping this as a
 /// single seam means the pipeline never changes when we add analysis depth.
-fn deep_collectors() -> Vec<Box<dyn Collector>> {
-    crate::deep_collectors_impl()
+fn deep_collectors(metrics: bool) -> Vec<Box<dyn Collector>> {
+    crate::deep_collectors_impl(metrics)
 }

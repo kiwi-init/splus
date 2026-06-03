@@ -150,6 +150,57 @@ test("without changedFiles, discovery degrades to files-with-findings and says s
   );
 });
 
+test("VERIFY drops refuted discoveries, keeps confirmed ones, never touches engine findings", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "splus-triage-"));
+  mkdirSync(join(dir, "src"), { recursive: true });
+  writeFileSync(join(dir, "src", "a.ts"), "line1\nline2\nline3\nline4\nline5\nline6\n");
+
+  const client: LLMClient = {
+    messages: {
+      async create(body: Record<string, unknown>) {
+        const b = body as { tool_choice?: { name?: string }; messages?: Array<{ content: string }> };
+        const name = b.tool_choice?.name;
+        if (name === "report_findings") {
+          return {
+            content: [{ type: "tool_use", name: "report_findings", input: { findings: [
+              { file: "src/a.ts", line: 3, title: "refute-me", severity: "high", category: "security", rationale: "claimed sink", confidence: 0.8 },
+              { file: "src/a.ts", line: 5, title: "keep-me", severity: "high", category: "correctness", rationale: "real off-by-one", confidence: 0.8 },
+            ] } }],
+          };
+        }
+        if (name === "submit_verifications") {
+          // Parse candidate ids + titles from the prompt; refute "refute-me".
+          const prompt = b.messages?.[0]?.content ?? "";
+          const verifications: Array<{ id: string; verified: boolean; confidence: number; reason: string }> = [];
+          const re = /--- candidate (\S+) ---\nclaim \([^)]*\): (.+)/g;
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(prompt))) {
+            const refute = m[2]!.includes("refute-me");
+            verifications.push({ id: m[1]!, verified: !refute, confidence: refute ? 0.1 : 0.9, reason: refute ? "not demonstrated" : "confirmed" });
+          }
+          return { content: [{ type: "tool_use", name: "submit_verifications", input: { verifications } }] };
+        }
+        // triage: keep the engine finding
+        return { content: [{ type: "tool_use", name: "submit_triage", input: { verdicts: [
+          { id: "f1", decision: "keep", confidence: 0.95, rationale: "real secret" },
+        ] } }] };
+      },
+    },
+  };
+
+  const rep: Report = { ...report, findings: [finding("f1", "src/a.ts", "secret.real")] };
+  const out = await triage(rep, { root: dir, client, thorough: true, verify: true, changedFiles: ["src/a.ts"] });
+
+  assert.equal(out.llm.discovered, 2, "two findings discovered");
+  assert.equal(out.llm.refuted, 1, "one discovery refuted by verify");
+  assert.equal(out.llm.verified, 1, "one discovery survived verify");
+  assert.ok(out.findings.some((f) => f.title === "keep-me"), "confirmed discovery kept");
+  assert.ok(!out.findings.some((f) => f.title === "refute-me"), "refuted discovery dropped");
+  assert.ok(out.findings.some((f) => f.id === "f1"), "grounded engine finding untouched by verify");
+  const refuted = out.suppressed.find((f) => f.title === "refute-me");
+  assert.match(refuted?.rationale ?? "", /failed verification/);
+});
+
 test("throws a clear error when no client and no API key", async () => {
   const saved = process.env.ANTHROPIC_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;

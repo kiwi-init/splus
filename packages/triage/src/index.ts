@@ -40,6 +40,14 @@ export interface TriageOptions {
   /** Run the discovery pass (frontier model) for logic/security bugs. Default false. */
   thorough?: boolean;
   /**
+   * Run the adversarial VERIFY stage over LLM-discovered findings: a skeptical
+   * pass that tries to refute each one against the cited code and drops the ones
+   * that don't hold up. The precision gate that keeps discovery from leaking the
+   * plausible-but-wrong comments that sink reviewer trust. Default: follows `thorough`.
+   */
+  verify?: boolean;
+  verifyModel?: string;
+  /**
    * The full set of changed files (the real change surface) for the discovery
    * pass to read. Discovery's whole job is to find bugs determinism missed, so it
    * must look at changed files that produced NO deterministic finding — not only
@@ -47,6 +55,12 @@ export interface TriageOptions {
    * for backward compatibility), and a note is emitted so the gap is visible.
    */
   changedFiles?: string[];
+  /**
+   * The unified diff of the change (added lines are where bugs live). When given,
+   * the discovery pass reviews the DIFF — not whole files blind — which is the
+   * single biggest recall lever. Without it, discovery falls back to full files.
+   */
+  diff?: string;
   /** Max concurrent LLM calls. Default 5. */
   concurrency?: number;
   /** Override models. */
@@ -76,10 +90,15 @@ export interface TriagedReport extends Omit<Report, "findings"> {
   llm: {
     triageModel: string;
     discoveryModel?: string;
+    verifyModel?: string;
     triaged: number;
     kept: number;
     suppressed: number;
     discovered: number;
+    /** Discovered findings that survived the adversarial VERIFY stage. */
+    verified: number;
+    /** Discovered findings dropped by VERIFY (refuted against the code). */
+    refuted: number;
     inputTokens: number;
     outputTokens: number;
     cachedInputTokens: number;
@@ -159,12 +178,53 @@ const DISCOVERY_TOOL = {
   },
 } as const;
 
+const VERIFY_SYSTEM = `You are a SKEPTICAL senior reviewer doing the final gate before comments are posted on a pull request. Each candidate below is a finding another reviewer plans to post. Your job is to REFUTE it: read the cited code and decide whether the claimed issue is real and actually demonstrated by that exact location.
+
+A reviewer's credibility dies from wrong comments, so be strict. Mark verified=false when:
+- the cited line does not clearly demonstrate the claimed issue,
+- the "bug" is actually handled elsewhere in the shown code (guard, await, try/except, validation),
+- the claim is speculative ("could", "might", "if untrusted") without evidence in the code,
+- you are not confident the comment would survive a maintainer's pushback.
+
+Only verified=true when a competent maintainer would agree the issue is real and worth fixing. Prefer dropping a doubtful comment over posting a wrong one. Return a verdict for every candidate id.`;
+
+const VERIFY_TOOL = {
+  name: "submit_verifications",
+  description: "For each candidate, decide whether it holds up against the actual code.",
+  input_schema: {
+    type: "object",
+    properties: {
+      verifications: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "The candidate's id, verbatim." },
+            verified: { type: "boolean", description: "true ONLY if the cited code clearly demonstrates the issue." },
+            confidence: { type: "number", description: "0..1 belief the issue is real." },
+            reason: { type: "string", description: "Why it holds up, or why it was refuted." },
+          },
+          required: ["id", "verified", "confidence", "reason"],
+        },
+      },
+    },
+    required: ["verifications"],
+  },
+} as const;
+
 interface Verdict {
   id: string;
   decision: "keep" | "suppress";
   confidence: number;
   rationale: string;
   suggestion?: string;
+}
+
+interface Verification {
+  id: string;
+  verified: boolean;
+  confidence: number;
+  reason: string;
 }
 
 /** Triage (and optionally discover) findings, returning an enriched report. */
@@ -229,9 +289,48 @@ export async function triage(report: Report, opts: TriageOptions): Promise<Triag
     discoveryModel = opts.discoveryModel ?? DISCOVERY_MODEL;
     const { files, notes } = selectDiscoverySurface(opts.changedFiles, [...byFile.keys()]);
     extraNotes.push(...notes);
-    const news = await discover(client, discoveryModel, opts.root, files, accUsage);
+    const news = await discover(client, discoveryModel, opts.root, files, opts.diff, accUsage);
     discovered = news.length;
     kept.push(...news);
+  }
+
+  // --- VERIFY (adversarial precision gate) ---
+  // Engine-anchored findings are already grounded — we trust them. The LLM's
+  // free-form discoveries are where plausible-but-wrong comments come from, so a
+  // skeptical pass tries to refute each one against the cited code and drops the
+  // ones that don't survive. This is the lever that buys precision over a bare
+  // model: it never ADDS noise, it only removes it.
+  let verifyModel: string | undefined;
+  let verified = 0;
+  let refuted = 0;
+  const doVerify = opts.verify ?? opts.thorough ?? false;
+  const toVerify = kept.filter((f) => f.llmOnly);
+  if (doVerify && toVerify.length > 0) {
+    verifyModel = opts.verifyModel ?? discoveryModel ?? DISCOVERY_MODEL;
+    const vmap = await verifyFindings(client, verifyModel, opts.root, toVerify, accUsage, concurrency);
+    const survivors: TriagedFinding[] = [];
+    for (const f of kept) {
+      if (!f.llmOnly) {
+        survivors.push(f);
+        continue;
+      }
+      const v = vmap.get(f.id);
+      // Strict gate: drop only on an explicit refutation. A missing verdict
+      // fails OPEN (keep) so a flaky verify call can't silently swallow findings.
+      if (v && v.verified === false) {
+        refuted++;
+        suppressed.push({
+          ...f,
+          verdict: "suppress",
+          rationale: `failed verification: ${v.reason}`,
+        });
+      } else {
+        verified++;
+        survivors.push(v ? { ...f, llmConfidence: Math.min(f.llmConfidence, v.confidence) } : f);
+      }
+    }
+    kept.length = 0;
+    kept.push(...survivors);
   }
 
   kept.sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || b.llmConfidence - a.llmConfidence);
@@ -249,10 +348,13 @@ export async function triage(report: Report, opts: TriageOptions): Promise<Triag
     llm: {
       triageModel,
       discoveryModel,
+      verifyModel,
       triaged: report.findings.length,
-      kept: kept.length - discovered,
+      kept: kept.length,
       suppressed: suppressed.length,
       discovered,
+      verified,
+      refuted,
       inputTokens: usage.input,
       outputTokens: usage.output,
       cachedInputTokens: usage.cached,
@@ -295,6 +397,7 @@ async function discover(
   model: string,
   root: string,
   files: string[],
+  diff: string | undefined,
   accUsage: (r: LLMResponse) => void,
 ): Promise<TriagedFinding[]> {
   const blocks = files
@@ -305,7 +408,14 @@ async function discover(
     })
     .filter(Boolean)
     .join("\n\n");
-  if (!blocks) return [];
+  if (!blocks && !diff) return [];
+
+  // The DIFF is the focus (bugs live in changed lines); the full files are
+  // context for reasoning. Lead with the diff so the model reviews the change,
+  // not the whole file blind — the single biggest recall lever.
+  const userContent = diff
+    ? `Review this DIFF. The added/changed lines (\`+\`) are where bugs are most likely; cite line numbers from the FULL FILES below.\n\n=== DIFF (the change under review) ===\n${diff.slice(0, 60000)}\n\n=== FULL FILES (numbered, for context + line numbers) ===\n${blocks}`
+    : `Changed files:\n\n${blocks}`;
 
   const res = await client.messages.create({
     model,
@@ -314,13 +424,14 @@ async function discover(
       {
         type: "text",
         text:
-          "You are Splus in deep-review mode. Find real logic, security, and correctness bugs that pattern-based tools miss (broken auth/IDOR, off-by-one, missing await, unhandled error paths, intent/spec mismatches). Report ONLY high-confidence issues, each citing a line that exists in the provided files. Prefer silence over speculation.",
+          "You are Splus in deep-review mode, reviewing the NEW/changed code in a diff. Find EVERY plausible bug the change introduces: logic errors, off-by-one, missing await/unhandled error paths, null/undefined, broken invariants, resource leaks, race conditions, security (injection, SSRF, path-traversal, authz/IDOR, unsafe deserialization, secrets), breaking API/signature changes, and intent/spec mismatches (code that doesn't do what its name/comment/PR claims). " +
+          "Prioritize RECALL: a separate verification pass removes false positives, so err toward flagging anything a careful senior reviewer might raise — but only about the CHANGED code, and each finding MUST cite a real line number from the provided files. Don't flag pre-existing code the diff didn't touch.",
         cache_control: { type: "ephemeral" },
       },
     ],
     tools: [DISCOVERY_TOOL],
     tool_choice: { type: "tool", name: "report_findings" },
-    messages: [{ role: "user", content: `Changed files:\n\n${blocks}` }],
+    messages: [{ role: "user", content: userContent }],
   });
   accUsage(res);
 
@@ -366,6 +477,60 @@ interface DiscoveryItem {
   rationale: string;
   suggestion?: string;
   confidence: number;
+}
+
+// --- verify (adversarial precision gate) ---
+
+/**
+ * Skeptically re-check each discovered finding against the cited code, sharded by
+ * file. Returns a verdict per finding id; callers drop only explicit refutations.
+ */
+async function verifyFindings(
+  client: LLMClient,
+  model: string,
+  root: string,
+  findings: TriagedFinding[],
+  accUsage: (r: LLMResponse) => void,
+  concurrency: number,
+): Promise<Map<string, Verification>> {
+  const byFile = new Map<string, TriagedFinding[]>();
+  for (const f of findings) {
+    const arr = byFile.get(f.file) ?? [];
+    arr.push(f);
+    byFile.set(f.file, arr);
+  }
+  const out = new Map<string, Verification>();
+  await mapLimit([...byFile.entries()], concurrency, async ([file, fs]) => {
+    const res = await client.messages.create({
+      model,
+      max_tokens: 2048,
+      system: [{ type: "text", text: VERIFY_SYSTEM, cache_control: { type: "ephemeral" } }],
+      tools: [VERIFY_TOOL],
+      tool_choice: { type: "tool", name: "submit_verifications" },
+      messages: [{ role: "user", content: verifyPrompt(root, file, fs) }],
+    });
+    accUsage(res);
+    for (const v of parseTool<{ verifications: Verification[] }>(res)?.verifications ?? []) {
+      out.set(v.id, v);
+    }
+  });
+  return out;
+}
+
+function verifyPrompt(root: string, file: string, findings: TriagedFinding[]): string {
+  const src = readFileSafe(join(root, file));
+  const lines = src ? src.split("\n") : [];
+  const parts: string[] = [`File: ${file}`, ""];
+  for (const f of findings) {
+    parts.push(`--- candidate ${f.id} ---`);
+    parts.push(`claim (${f.severity} ${f.category}): ${f.title}`);
+    parts.push(`rationale: ${f.rationale}`);
+    parts.push("code:");
+    parts.push(contextWindow(lines, f.region.start_line, 8));
+    parts.push("");
+  }
+  parts.push("Refute or confirm every candidate id above.");
+  return parts.join("\n");
 }
 
 // --- prompt construction ---
@@ -464,3 +629,4 @@ async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<v
 // path above is untouched — these are additive.
 export { createOpenAIClient } from "./openai.js";
 export { createLLMClient } from "./provider.js";
+export { createClaudeCliClient } from "./claude-cli.js";

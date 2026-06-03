@@ -137,6 +137,93 @@ fn rules() -> &'static Vec<Rule> {
                 message: "A `print(` was added — if this is debug output, use logging instead.",
                 langs: Some(&[Lang::Python]),
             },
+            // ── high-precision security sinks (native, local, diff-scoped) ──────
+            // Conservative patterns: each is a well-known sink whose mere presence
+            // on a new line warrants a look. Precision over recall — deep taint /
+            // SSRF nuance is left to the agent's discovery pass.
+            Rule {
+                id: "security.python-yaml-load",
+                title: "Unsafe YAML load",
+                re: rx(r"\byaml\.load\s*\("),
+                severity: Severity::Medium,
+                category: Category::Security,
+                confidence: 0.6,
+                message: "`yaml.load(` without `Loader=SafeLoader` deserializes arbitrary Python objects (RCE on untrusted input). Use `yaml.safe_load(`.",
+                langs: Some(&[Lang::Python]),
+            },
+            Rule {
+                id: "security.python-pickle-load",
+                title: "Untrusted pickle deserialization",
+                re: rx(r"\bpickle\.loads?\s*\("),
+                severity: Severity::Medium,
+                category: Category::Security,
+                confidence: 0.55,
+                message: "`pickle.load(s)` executes arbitrary code during deserialization. Never unpickle untrusted data — use a safe format (JSON) at trust boundaries.",
+                langs: Some(&[Lang::Python]),
+            },
+            Rule {
+                id: "security.python-eval-exec",
+                title: "Dynamic eval/exec",
+                re: rx(r"^\s*(eval|exec)\s*\(|[^.\w](eval|exec)\s*\("),
+                severity: Severity::Medium,
+                category: Category::Security,
+                confidence: 0.5,
+                message: "`eval`/`exec` on any non-constant input is a code-injection sink. Prefer explicit parsing/dispatch.",
+                langs: Some(&[Lang::Python]),
+            },
+            Rule {
+                id: "security.python-subprocess-shell",
+                title: "Shell=True subprocess",
+                re: rx(r"\bsubprocess\.\w+\s*\([^)]*shell\s*=\s*True|\bos\.(system|popen)\s*\("),
+                severity: Severity::Medium,
+                category: Category::Security,
+                confidence: 0.6,
+                message: "A shell invocation (`shell=True` / `os.system` / `os.popen`) was added. If any segment is user-controlled this is a command-injection sink — pass an argv list without a shell.",
+                langs: Some(&[Lang::Python]),
+            },
+            Rule {
+                id: "security.python-sql-fstring",
+                title: "SQL built by string interpolation",
+                // The operator must sit OUTSIDE the string literal (real
+                // interpolation) — a `%s`/`%d` placeholder *inside* the string is
+                // a parameterized query and must NOT trip this rule.
+                re: rx(r#"\.execute\w*\s*\(\s*(f["']|[^)]*["']\s*[%+]|[^)]*["']\.format\s*\()"#),
+                severity: Severity::High,
+                category: Category::Security,
+                confidence: 0.6,
+                message: "SQL passed to `.execute(` is built by f-string / `%` / `+` / `.format` interpolation — a SQL-injection sink. Use parameterized queries (placeholders + params).",
+                langs: Some(&[Lang::Python]),
+            },
+            Rule {
+                id: "security.tls-verify-disabled",
+                title: "TLS verification disabled",
+                re: rx(r"\bverify\s*=\s*False|\brejectUnauthorized\s*:\s*false"),
+                severity: Severity::Medium,
+                category: Category::Security,
+                confidence: 0.85,
+                message: "TLS certificate verification is disabled — this exposes the connection to MITM. Remove it or pin a trusted CA bundle.",
+                langs: None,
+            },
+            Rule {
+                id: "security.js-sql-template",
+                title: "SQL built by template literal",
+                re: rx(r"\.(query|execute|raw)\s*\(\s*`[^`]*\$\{"),
+                severity: Severity::High,
+                category: Category::Security,
+                confidence: 0.6,
+                message: "SQL passed to `.query/.execute/.raw` is built with a `${…}` template literal — a SQL-injection sink. Use parameterized queries.",
+                langs: Some(JSISH),
+            },
+            Rule {
+                id: "security.js-dangerous-html",
+                title: "dangerouslySetInnerHTML",
+                re: rx(r"dangerouslySetInnerHTML"),
+                severity: Severity::Medium,
+                category: Category::Security,
+                confidence: 0.5,
+                message: "`dangerouslySetInnerHTML` renders raw HTML — an XSS sink unless the value is sanitized (e.g. DOMPurify).",
+                langs: Some(JSISH),
+            },
         ]
     })
 }
@@ -233,5 +320,39 @@ mod tests {
 
         let c2 = ctx("a.ts", &[(1, "<<<<<<< HEAD")]);
         assert!(Heuristics.run(&c2).iter().any(|x| x.rule_id == "hygiene.merge-conflict-marker"));
+    }
+
+    #[test]
+    fn flags_python_security_sinks() {
+        let has = |path: &str, line: &str, rule: &str| {
+            Heuristics.run(&ctx(path, &[(1, line)])).iter().any(|x| x.rule_id == rule)
+        };
+        assert!(has("a.py", "    data = yaml.load(raw)", "security.python-yaml-load"));
+        assert!(has("a.py", "    obj = pickle.loads(blob)", "security.python-pickle-load"));
+        assert!(has("a.py", "    subprocess.run(cmd, shell=True)", "security.python-subprocess-shell"));
+        assert!(has("a.py", "    cur.execute(f\"SELECT * FROM t WHERE id={uid}\")", "security.python-sql-fstring"));
+        assert!(has("a.py", "    requests.get(url, verify=False)", "security.tls-verify-disabled"));
+        // precision guards: safe forms must NOT trip
+        assert!(!has("a.py", "    data = yaml.safe_load(raw)", "security.python-yaml-load"));
+        assert!(!has("a.py", "    cur.execute(\"SELECT 1\", (uid,))", "security.python-sql-fstring"));
+        // a `%s`/`%d` placeholder INSIDE the string is parameterized — not a sink
+        assert!(!has("a.py", "    cur.execute(\"SELECT * FROM t WHERE id = %s\", (uid,))", "security.python-sql-fstring"));
+        // but `%`/`+` OUTSIDE the string IS interpolation → must trip
+        assert!(has("a.py", "    cur.execute(\"SELECT * FROM t WHERE id = \" + uid)", "security.python-sql-fstring"));
+        assert!(has("a.py", "    cur.execute(\"SELECT %s\" % uid)", "security.python-sql-fstring"));
+        // language gating: python rule must not fire on a .ts file
+        assert!(!has("a.ts", "    obj = pickle.loads(blob)", "security.python-pickle-load"));
+    }
+
+    #[test]
+    fn flags_js_security_sinks() {
+        let has = |path: &str, line: &str, rule: &str| {
+            Heuristics.run(&ctx(path, &[(1, line)])).iter().any(|x| x.rule_id == rule)
+        };
+        assert!(has("a.ts", "  db.query(`SELECT * FROM u WHERE id=${id}`)", "security.js-sql-template"));
+        assert!(has("a.tsx", "  return <div dangerouslySetInnerHTML={{__html: x}} />", "security.js-dangerous-html"));
+        assert!(has("a.ts", "  const agent = new https.Agent({ rejectUnauthorized: false })", "security.tls-verify-disabled"));
+        // parameterized query must not trip
+        assert!(!has("a.ts", "  db.query('SELECT * FROM u WHERE id=$1', [id])", "security.js-sql-template"));
     }
 }

@@ -2,11 +2,13 @@
 
 # Splus
 
-**The precision-first code reviewer — open source, and 100% local.**
+**Makes your coding agent a disciplined, precision-first reviewer — open source, 100% local.**
 
-A deterministic Rust engine your coding agent (**Claude Code · Codex · OpenCode**) calls over
-MCP. It reviews only *new* lines, proves every finding, maps the cross-file blast radius, and
-learns the noise you wave off. No account, no token, nothing leaves your machine.
+Splus turns **Claude Code · Codex · OpenCode** into a reviewer that only looks at *new* lines,
+reasons from **grounded facts** (secrets, security sinks, cross-file blast radius) instead of
+vibes, runs a real **review protocol** (detect → impact → triage → remediate → **verify**), and
+**learns** what your team waves off *and* what it cares about. A deterministic Rust engine supplies
+the grounding; your agent does the reviewing. No account, no token, nothing leaves your machine.
 
 [![CI](https://github.com/kiwi-init/splus/actions/workflows/ci.yml/badge.svg)](https://github.com/kiwi-init/splus/actions/workflows/ci.yml)
 [![Splus self-review](https://github.com/kiwi-init/splus/actions/workflows/splus-review.yml/badge.svg)](https://github.com/kiwi-init/splus/actions/workflows/splus-review.yml)
@@ -49,15 +51,24 @@ command = "~/.splus/bin/splus-mcp"
 ## Why
 
 Every AI reviewer races on catch-rate, and the market is begging for the opposite. Independent
-measurement (the Martian Code Review Bench — ~200k real PRs scored by *whether the developer
-actually fixed the flagged line*) caps even the best tools at **~50–64% F1 / ~49–62%
-precision**. Roughly half of every competitor's comments get ignored. **Noise — not missed
+measurement (the [Martian Code Review Bench](https://github.com/withmartian/code-review-benchmark)
+— real PRs scored by *whether the developer actually fixed the flagged line*) puts well-known
+tools around **26–56% precision** — most of their comments get ignored. **Noise — not missed
 bugs — is the #1 reason teams turn these tools off.**
 
-Splus wins on signal-to-noise **by construction**: a deterministic engine does maximal work,
-every finding cites a reproducible **anchor**, everything is **diff-scoped** (clean-as-you-code
-— only *new* code is ever flagged), and the optional LLM stage is reserved for judgment, not
-scanning. Your agent stays the reviewer; Splus supplies precise, provable findings.
+Splus doesn't try to be a smarter model than the one you already run. It makes *your* agent a
+disciplined reviewer:
+
+- **Grounded, not guessing** — a deterministic Rust engine surfaces high-precision facts (secrets,
+  injection / deserialization / TLS sinks, cross-file blast radius) the agent reasons *from*.
+- **Diff-scoped** — only newly-added lines are ever flagged (clean-as-you-code).
+- **A protocol, not one prompt** — detect → impact → triage → remediate → **verify**, where a
+  skeptical pass refutes plausible-but-wrong comments before they're ever posted.
+- **Quiet by default** — maintainability metrics are off unless asked; every kept finding earned it.
+- **Learns both ways** — per-repo memory suppresses the noise you `dismiss` *and* reinforces the
+  findings you `accept`, so the review fits your team over time.
+
+Nothing leaves your machine; the optional LLM stage talks only to the provider you choose.
 
 ## The MCP tools
 
@@ -67,11 +78,17 @@ Your agent connects to the local server and calls these:
 | ----------- | --------------------------------------------------------------------------- |
 | `review`    | Review `working` / `staged` / `base..HEAD` / whole-repo (`all`) changes.     |
 | `dismiss`   | Teach Splus a finding is noise — it generalizes to close variants.           |
+| `accept`    | Teach Splus a finding was real — it reinforces close variants going forward.  |
 | `mute`      | Mute an entire rule for this repo.                                           |
-| `learnings` | List what's been suppressed on this repo.                                    |
+| `learnings` | List what's been learned on this repo.                                       |
 | `index`     | Build a SCIP index locally for the precise (compiler-grade) blast-radius tier. |
 
-Learnings are stored per-repo in `.splus-cache/learnings.json` — they stay in your checkout.
+With an LLM key (or `claude -p`), `review` runs the full protocol (detect → impact → triage →
+remediate → verify); without one it returns the grounded deterministic floor and hands your agent
+the review. Learnings (both `dismiss` and `accept`) are stored per-repo in
+`.splus-cache/learnings.json` — they stay in your checkout.
+
+**Full reference: [`docs/TOOLS.md`](docs/TOOLS.md)** — every tool, parameter, and return shape.
 
 ## In CI / pre-commit
 
@@ -95,10 +112,10 @@ flow over MCP — that's where the reviewing happens.
 |---|---|---|
 | **0 Guard** | size/generated/vendored circuit breakers | bounding cost on huge/monorepo diffs |
 | **1 Diff** | `git` clean-as-you-code added-line set | never touching legacy/unchanged code |
-| **2 Collectors** | secrets (regex+entropy) · diff heuristics · external SARIF (Semgrep/ast-grep/gitleaks/OSV) | high-confidence findings with no LLM |
+| **2 Collectors** | secrets (regex+entropy) · native security sinks (injection/deser/shell/TLS) · diff heuristics · optional external SARIF (Semgrep/ast-grep/gitleaks/OSV, offline) | high-confidence findings with no LLM |
 | **3 Blast radius** | cross-file caller graph for changed exports — **precise (SCIP, compiler-grade)** where an `index.scip` exists, name+import heuristic otherwise | structured impact facts, not guesses |
-| **4 Metrics** | cognitive-complexity **delta** base→head | defensible maintainability signals |
-| **5 Suppress** | per-repo learned filter (exact · rule · semantic) | dropping known noise before you ever see it |
+| **4 Metrics** *(opt-in)* | cognitive-complexity **delta** base→head — **off by default** (`--metrics`); near-zero bug correlation, so it never dilutes the floor | maintainability signal only when asked |
+| **5 Memory** | per-repo learned filter — suppress what you `dismiss` (exact · rule · semantic) · reinforce what you `accept` | dropping known noise + ranking known signal |
 
 Every finding carries an **anchor** (`secret` / `metric` / `graph-edge` / `sarif` /
 `heuristic`) and a stable fingerprint. Cross-file claims always show an explicit **resolution
@@ -132,17 +149,25 @@ Cutting a release: tag `v*` and push — `.github/workflows/release.yml` cross-c
 engine for macOS/Linux, bundles the MCP server, and publishes a GitHub Release that `install.sh`
 pulls from. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+## Docs
+
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — how the engine + review protocol work (with diagrams).
+- **[docs/TOOLS.md](docs/TOOLS.md)** — the MCP tools your agent calls (every param + return).
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — build, test, and the release process.
+- **[bench/martian/](bench/martian/)** — score Splus on the independent Martian Code Review Bench.
+
 ## Repo layout
 
 ```
 crates/splus-engine/   # the deterministic engine (Rust) — the source of truth
 packages/
   shared/              # canonical Finding model (TS, mirrors Rust) + engine runner
-  suppression/         # learned per-repo noise filter (exact · rule · semantic)
-  triage/              # optional LLM layer — judge/explain/suppress (downstream of the engine)
+  suppression/         # per-repo memory — suppress (dismiss) + reinforce (accept)
+  triage/              # optional LLM layer — the multi-pass review (downstream of the engine)
   mcp/                 # the local MCP server your agent talks to
+bench/                 # regression gate (run.mjs) + the Martian benchmark adapter (martian/)
+docs/                  # ARCHITECTURE.md · TOOLS.md
 install.sh             # the one-line installer
-docs/RESEARCH.md       # competitive + tooling research
 ```
 
 The marketing site (splus.sh) lives in its own repo: **[kiwi-init/splus-lp](https://github.com/kiwi-init/splus-lp)**.

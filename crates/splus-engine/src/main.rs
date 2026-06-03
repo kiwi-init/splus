@@ -47,6 +47,10 @@ struct ReviewArgs {
     /// from index.scip / .splus-cache/index.scip).
     #[arg(long)]
     scip: Option<PathBuf>,
+    /// Also emit cognitive-complexity maintainability metrics (off by default —
+    /// they are near-noise and dilute the grounded floor).
+    #[arg(long)]
+    metrics: bool,
     /// Output format: pretty | json | sarif.
     #[arg(long, default_value = "pretty")]
     format: String,
@@ -89,6 +93,7 @@ fn run_review(args: ReviewArgs) -> Result<i32> {
 
     let mut engine = Engine::new(args.root.clone(), mode);
     engine.scip_path = args.scip.clone();
+    engine.metrics = args.metrics;
     let report = engine.review()?;
 
     let color = !args.no_color && std::env::var_os("NO_COLOR").is_none();

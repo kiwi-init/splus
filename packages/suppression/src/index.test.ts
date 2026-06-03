@@ -119,6 +119,29 @@ test("secret rules are exempt from semantic suppression: a dismissed fixture mus
   assert.ok(out.kept.some((k) => k.id === "akia-real"), "the real secret must be kept");
 });
 
+test("accepted findings reinforce similar future findings (positive memory)", async () => {
+  const store = newStore();
+  // A reviewer confirmed a real SSRF finding on a past PR.
+  const accepted = f("ssrf-1", "security.ssrf", "Server-side request forgery",
+    "A user-controlled URL is fetched server-side without host allow-listing — an SSRF sink.");
+  await store.record({
+    fingerprint: accepted.id, rule_id: accepted.rule_id, text: candidateText(accepted),
+    scope: "fingerprint", signal: "accepted", at: "2026-06-02T00:00:00Z",
+  });
+
+  // A new, near-identical finding on this PR (different fingerprint) must be KEPT
+  // and flagged as reinforced; an unrelated nit must not be.
+  const similar = f("ssrf-2", "security.ssrf", "Server-side request forgery",
+    "A user-controlled URL is fetched server-side without host allow-listing — an SSRF sink.");
+  const unrelated = f("nit-1", "hygiene.python-print", "Debug print", "A print( was added.");
+
+  const out = await applySuppression(report([similar, unrelated]), store);
+  assert.equal(out.suppressed.length, 0, "positive memory never suppresses");
+  assert.ok(out.kept.some((k) => k.id === "ssrf-2"));
+  assert.ok(out.reinforced.some((r) => r.id === "ssrf-2"), "similar finding should be reinforced");
+  assert.ok(!out.reinforced.some((r) => r.id === "nit-1"), "unrelated nit should not be reinforced");
+});
+
 test("muting a secret rule still silences it (explicit opt-in remains possible)", async () => {
   const store = newStore();
   await store.record({
