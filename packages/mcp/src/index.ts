@@ -215,7 +215,8 @@ function discoveryDirective(files: string[]): string {
     "  • failure & concurrency — races, partial writes, retries, fail-open where it must fail-closed",
     "  • blast radius — for any changed export with callers (see findings above), open each call site and confirm it still holds",
     "",
-    "Report what you find as must-fix / concern / nit with file:line and a concrete fix. Prefer silence over speculation — never invent a finding; every claim cites a real line. When the user agrees something is noise, call `dismiss` with its id so Splus learns it.",
+    "Before posting anything, VERIFY each candidate: re-read the cited line and try to REFUTE it — drop any you can't defend (already handled nearby, speculative, the line doesn't actually demonstrate it). A wrong comment costs more than a missed nit.",
+    "Report the survivors as must-fix / concern / nit with file:line and a concrete fix. Never invent a finding; every claim cites a real line. Teach Splus as you go: `dismiss <id>` when the user agrees something is noise, `accept <id>` when they act on a real one — it learns this repo both ways.",
   ].join("\n");
 }
 
@@ -236,8 +237,10 @@ server.registerTool(
       "through a senior-reviewer pass over the changed files (logic / security / intent bugs " +
       "determinism can't see) — that's the design: Splus grounds you with precise anchors + blast " +
       "radius, and you, the frontier model in the chair, do the reasoning. Do that pass; don't just " +
-      "relay the findings. Set discovery=false to suppress the directive. Pass a finding's `id` to " +
-      "the `dismiss` tool when the user agrees something is noise.",
+      "relay the findings. With llm=true + thorough=true Splus runs the full protocol headlessly " +
+      "(detect → impact → triage → remediate → verify, where an adversarial pass drops " +
+      "plausible-but-wrong findings). Set discovery=false to suppress the directive. Teach the repo: " +
+      "`dismiss <id>` when the user agrees something is noise, `accept <id>` when they act on a real one.",
     inputSchema: {
       root: z
         .string()
