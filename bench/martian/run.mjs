@@ -46,6 +46,18 @@ const LIMIT = Number(flag("--limit", "0")) || Infinity;
 const REPO_FILTER = (flag("--repo", "") || "").split(",").filter(Boolean);
 const JUDGE = args.includes("--judge");
 const HAS_KEY = !!process.env.ANTHROPIC_API_KEY;
+function hasClaudeCli() {
+  try { execFileSync("claude", ["--version"], { stdio: "ignore" }); return true; } catch { return false; }
+}
+// LLM backend: an API key → Anthropic SDK; otherwise the local `claude -p` CLI
+// (this machine's existing Claude auth) → no key, no separate billing.
+const USE_CLI = !HAS_KEY && hasClaudeCli();
+const HAS_LLM = HAS_KEY || USE_CLI;
+const BACKEND = HAS_KEY ? "anthropic-sdk" : USE_CLI ? "claude -p" : "none";
+async function llmClient() {
+  const t = await import(join(ROOT, "packages", "triage", "dist", "index.js"));
+  return USE_CLI ? t.createClaudeCliClient() : t.createLLMClient();
+}
 
 const sh = (cmd, a, opts = {}) =>
   execFileSync(cmd, a, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, ...opts });
@@ -151,11 +163,13 @@ function runSplusFloor(dir, files) {
 }
 
 async function runSplusAgent(dir, files) {
-  // The multi-pass agent review (detect→…→verify) via @splus/triage. Needs a key.
+  // The multi-pass agent review (detect→impact→triage→remediate→verify) via
+  // @splus/triage, backed by the SDK or `claude -p`.
   const { triage } = await import(join(ROOT, "packages", "triage", "dist", "index.js"));
   const { runEngine } = await import(join(ROOT, "packages", "shared", "dist", "index.js"));
   const report = await runEngine({ root: dir, mode: { kind: "staged" } });
-  const t = await triage(report, { root: dir, thorough: true, verify: true, changedFiles: files });
+  const client = await llmClient();
+  const t = await triage(report, { root: dir, thorough: true, verify: true, changedFiles: files, client });
   return t.findings.map((f) => ({
     file: f.file,
     line: f.region?.start_line ?? 0,
@@ -173,7 +187,7 @@ async function main() {
   prs = prs.slice(0, LIMIT);
 
   process.stderr.write(
-    `Splus on Martian: ${prs.length} PR(s) · agent pass ${HAS_KEY ? "ON" : "OFF (no key)"} · judge ${JUDGE && HAS_KEY ? "ON" : "OFF"}\n`,
+    `Splus on Martian: ${prs.length} PR(s) · backend ${BACKEND} · agent ${HAS_LLM ? "ON" : "OFF"} · judge ${JUDGE && HAS_LLM ? "ON" : "OFF"}\n`,
   );
 
   let micro = { tp: 0, fp: 0, fn: 0 };
@@ -182,10 +196,10 @@ async function main() {
     const dir = mkdtempSync(join(tmpdir(), "splus-martian-"));
     try {
       const files = reconstruct(url, dir);
-      const candidates = HAS_KEY ? await runSplusAgent(dir, files) : runSplusFloor(dir, files);
+      const candidates = HAS_LLM ? await runSplusAgent(dir, files) : runSplusFloor(dir, files);
       const golden = pr.golden_comments || [];
       let scored = null;
-      if (JUDGE && HAS_KEY) {
+      if (JUDGE && HAS_LLM) {
         scored = await judge(candidates, golden);
         micro.tp += scored.tp;
         micro.fp += scored.fp;
@@ -207,9 +221,9 @@ async function main() {
   console.log("\n  Splus · Martian Code Review Bench");
   console.log("  " + "─".repeat(48));
   const ran = rows.filter((r) => !r.error).length;
-  console.log(`  PRs reviewed        ${ran}/${rows.length}`);
+  console.log(`  PRs reviewed        ${ran}/${rows.length}   (backend: ${BACKEND})`);
   console.log(`  candidates total    ${rows.reduce((a, r) => a + (r.candidates || 0), 0)}`);
-  if (JUDGE && HAS_KEY) {
+  if (JUDGE && HAS_LLM) {
     const p = micro.tp / (micro.tp + micro.fp || 1);
     const r = micro.tp / (micro.tp + micro.fn || 1);
     const f1 = p + r ? (2 * p * r) / (p + r) : 0;
@@ -227,8 +241,7 @@ async function main() {
 
 /** LLM judge: does each golden comment have a matching Splus candidate? (needs key) */
 async function judge(candidates, golden) {
-  const { createLLMClient } = await import(join(ROOT, "packages", "triage", "dist", "index.js"));
-  const client = createLLMClient();
+  const client = await llmClient();
   const sys =
     "You are the judge for a code-review benchmark. Given a tool's review comments and a set of " +
     "human golden comments (real issues), decide which golden comments the tool actually caught " +
