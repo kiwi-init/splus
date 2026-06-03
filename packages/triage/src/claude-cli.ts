@@ -74,9 +74,10 @@ export function createClaudeCliClient(opts?: { defaultModel?: string }): LLMClie
             maxBuffer: 64 * 1024 * 1024,
           });
         } catch (e) {
-          // claude CLI failed (rate limit, etc.) — surface as empty so callers fail open.
-          process.stderr.write(`claude-cli: ${(e as Error).message?.slice(0, 120)}\n`);
-          return { content: [{ type: "text", text: "" }] };
+          // claude CLI failed (rate limit, auth, crash). THROW rather than fail
+          // open — for the benchmark this lets the caller skip + retry the PR
+          // instead of recording a garbage 0-score result when limits explode.
+          throw new Error(`claude -p failed: ${(e as Error).message?.slice(0, 160)}`);
         }
         const res = JSON.parse(out) as { result?: string; usage?: Record<string, number> };
         const text = res.result ?? "";
