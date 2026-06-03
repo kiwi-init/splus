@@ -13,13 +13,17 @@ pub mod util;
 
 use collectors::Collector;
 
-/// The tree-sitter analysis tier: cognitive-complexity delta + cross-file
-/// blast radius. Runs only when circuit breakers allow (see pipeline).
-pub fn deep_collectors_impl() -> Vec<Box<dyn Collector>> {
-    vec![
-        Box::new(collectors::complexity::Complexity),
-        Box::new(collectors::blast_radius::BlastRadiusCollector),
-    ]
+/// The tree-sitter analysis tier. Cross-file **blast radius** is grounded signal
+/// and runs whenever circuit breakers allow. Cognitive-**complexity** delta is a
+/// maintainability *metric* (near-zero bug correlation) — quiet by default; it is
+/// only added when `metrics` is requested, so the review floor stays signal-only.
+pub fn deep_collectors_impl(metrics: bool) -> Vec<Box<dyn Collector>> {
+    let mut cs: Vec<Box<dyn Collector>> =
+        vec![Box::new(collectors::blast_radius::BlastRadiusCollector)];
+    if metrics {
+        cs.push(Box::new(collectors::complexity::Complexity));
+    }
+    cs
 }
 
 /// Best-effort external adapters (semgrep/ast-grep/gitleaks/osv) that are NOT

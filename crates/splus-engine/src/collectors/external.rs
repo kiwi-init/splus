@@ -11,7 +11,7 @@ use super::{Collector, ReviewContext};
 use crate::model::{Anchor, AnchorKind, Category, Finding, Region, Severity};
 use serde_json::Value;
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Optional adapters, in priority order.
@@ -86,13 +86,36 @@ fn on_added_line(ctx: &ReviewContext, rel: &str, line: u32) -> bool {
 
 // --- semgrep (SARIF) -------------------------------------------------------
 
+/// Resolve a **local** semgrep ruleset so we never hit the registry over the
+/// network (`--config auto` would — that breaks the 100%-local guarantee).
+/// Order: `$SPLUS_SEMGREP_CONFIG`, then `~/.splus/semgrep/` (written by the
+/// installer). Returns None when no offline ruleset is present → skip semgrep.
+fn semgrep_config() -> Option<String> {
+    if let Some(c) = std::env::var_os("SPLUS_SEMGREP_CONFIG") {
+        let p = PathBuf::from(c);
+        if p.exists() {
+            return Some(p.to_string_lossy().into_owned());
+        }
+    }
+    let home = std::env::var_os("HOME")?;
+    let dir = PathBuf::from(home).join(".splus").join("semgrep");
+    if dir.is_dir() && std::fs::read_dir(&dir).map(|mut d| d.next().is_some()).unwrap_or(false) {
+        return Some(dir.to_string_lossy().into_owned());
+    }
+    None
+}
+
 fn run_semgrep(ctx: &ReviewContext) -> Vec<Finding> {
     let files = reviewable_abs_paths(ctx);
     if files.is_empty() {
         return Vec::new();
     }
+    // Local-first: only run semgrep against an offline ruleset; never `--config auto`.
+    let Some(config) = semgrep_config() else {
+        return Vec::new();
+    };
     let mut cmd = Command::new("semgrep");
-    cmd.args(["--sarif", "--quiet", "--config", "auto"])
+    cmd.args(["--sarif", "--quiet", "--config", &config, "--metrics", "off"])
         .args(&files)
         .current_dir(&ctx.root);
     let Ok(out) = cmd.output() else {
