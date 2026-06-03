@@ -15,6 +15,7 @@
 #                     used for local testing of this script
 #   SPLUS_NO_MODIFY_PATH=1  don't touch shell rc files
 #   SPLUS_NO_WIRE=1         don't auto-wire coding agents
+#   SPLUS_NO_ADAPTERS=1     don't download the optional gitleaks/osv-scanner adapters
 set -eu
 
 REPO="kiwi-init/splus"
@@ -102,6 +103,40 @@ EOF
 chmod 0755 "$BIN_DIR/splus-mcp"
 printf '%s\n' "$version" > "$INSTALL_DIR/version"
 ok "installed splus-mcp, splus-engine → $BIN_DIR"
+
+# --- optional: provision external adapters (best-effort) -------------------
+# The engine ships native, local detectors (secrets + injection/deser/TLS sinks).
+# These adapters EXTEND that coverage and the engine auto-detects them on PATH
+# ($BIN_DIR): gitleaks (MIT, broader secret patterns, fully local) and osv-scanner
+# (dependency CVEs — the one network call Splus can make, and only when a lockfile
+# changed). Best-effort: a failed adapter download never aborts the install.
+# Skip entirely with SPLUS_NO_ADAPTERS=1 (e.g. air-gapped installs).
+if [ -z "${SPLUS_NO_ADAPTERS:-}" ] && { command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; }; then
+  if command -v curl >/dev/null 2>&1; then afetch() { curl -fsSL "$1" -o "$2"; }
+  else afetch() { wget -qO "$2" "$1"; }; fi
+  say "provisioning adapters (skip with SPLUS_NO_ADAPTERS=1)"
+
+  # gitleaks — diff-scoped secret scanning (asset arch matches ours: arm64/x64).
+  gl_ver="8.30.1"
+  atmp=$(mktemp -d)
+  if afetch "https://github.com/gitleaks/gitleaks/releases/download/v${gl_ver}/gitleaks_${gl_ver}_${os}_${arch}.tar.gz" "$atmp/gl.tgz" 2>/dev/null \
+     && tar -xzf "$atmp/gl.tgz" -C "$atmp" gitleaks 2>/dev/null; then
+    install -m 0755 "$atmp/gitleaks" "$BIN_DIR/gitleaks" && ok "adapter: gitleaks (secrets)"
+  else
+    warn "adapter: gitleaks not installed for ${os}-${arch} (engine's native secret rules still apply)"
+  fi
+  rm -rf "$atmp"
+
+  # osv-scanner — dependency CVEs (osv uses amd64; we call x64 → map it).
+  osv_arch="$arch"; [ "$arch" = "x64" ] && osv_arch="amd64"
+  if afetch "https://github.com/google/osv-scanner/releases/download/v2.3.8/osv-scanner_${os}_${osv_arch}" "$BIN_DIR/osv-scanner" 2>/dev/null \
+     && [ -s "$BIN_DIR/osv-scanner" ]; then
+    chmod 0755 "$BIN_DIR/osv-scanner" && ok "adapter: osv-scanner (dependency CVEs)"
+  else
+    rm -f "$BIN_DIR/osv-scanner"
+    warn "adapter: osv-scanner not installed (dependency-CVE checks unavailable)"
+  fi
+fi
 
 # --- PATH ------------------------------------------------------------------
 case ":$PATH:" in

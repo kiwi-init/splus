@@ -273,14 +273,32 @@ server.registerTool(
         .describe(
           "Append the directive that drives YOU (the agent) through the senior-reviewer discovery pass over the changed files. Default true — this is what makes Splus full-power in an interactive agent (no API key; you are the model).",
         ),
+      precise: z
+        .boolean()
+        .optional()
+        .describe(
+          "Build a SCIP index first (scip-typescript / scip-python) so cross-file blast radius is compiler-grade (~97%) instead of the name heuristic (~60%). Slower (needs the project's deps); skipped if a fresh index already exists. Default false.",
+        ),
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
-  async ({ root, mode, base, applyLearnings, llm, thorough, discovery }) => {
+  async ({ root, mode, base, applyLearnings, llm, thorough, discovery, precise }) => {
     const repo = rootOf(root);
     const m = (mode ?? "working") as ReviewMode;
     if (m === "base" && !base) return fail("mode='base' requires a `base` ref.");
     const dmode = toMode(m, base ?? null);
+
+    // Precise blast-radius (opt-in): generate the SCIP index so the engine resolves
+    // cross-file impact compiler-grade. The engine auto-detects the written index.
+    const preciseNotes: string[] = [];
+    if (precise && !hasScipIndex(repo)) {
+      const r = buildScipIndex(repo);
+      preciseNotes.push(
+        r.status === "indexed"
+          ? "Precise blast radius: SCIP index built — cross-file impact is compiler-grade."
+          : `Precise blast radius requested but unavailable (${r.status}); using the name+import heuristic tier.`,
+      );
+    }
 
     let report: Report;
     try {
@@ -311,6 +329,7 @@ server.registerTool(
       reinforcedIds.length > 0
         ? `\n\nReinforced (resemble findings this repo previously confirmed real — surface these first): ${reinforcedIds.join(", ")}`
         : "";
+    const preciseNote = preciseNotes.length ? `\n\n${preciseNotes.join("\n")}` : "";
 
     // Optional LLM triage (opt-in). Dynamically imported so the Anthropic SDK is
     // only loaded when actually used. Falls back to deterministic on any error.
@@ -323,7 +342,7 @@ server.registerTool(
           changedFiles: listChangedFiles(repo, dmode),
         });
         return ok(
-          `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(toAgentTriaged(triaged), null, 2)}${reinforcedNote}`,
+          `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(toAgentTriaged(triaged), null, 2)}${reinforcedNote}${preciseNote}`,
         );
       } catch (e) {
         process.stderr.write(
@@ -334,7 +353,7 @@ server.registerTool(
     }
 
     const payload = toAgentReport(report, suppressed);
-    const body = `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(payload, null, 2)}${reinforcedNote}`;
+    const body = `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(payload, null, 2)}${reinforcedNote}${preciseNote}`;
     // The handoff: ground the agent, then drive it through the discovery pass.
     if (discovery === false) return ok(body);
     return ok(`${body}\n\n${discoveryDirective(listChangedFiles(repo, dmode))}`);
@@ -510,6 +529,41 @@ server.registerTool(
 
 // --- index (precise blast-radius tier) -------------------------------------
 
+interface IndexResult {
+  status: "indexed" | "unsupported" | "failed";
+  message: string;
+}
+
+/** The shared SCIP indexer used by both the `index` tool and `review precise:true`. */
+function buildScipIndex(repo: string): IndexResult {
+  mkdirSync(join(repo, ".splus-cache"), { recursive: true });
+  const out = join(".splus-cache", "index.scip");
+  let indexer: string;
+  if (existsSync(join(repo, "tsconfig.json"))) indexer = "@sourcegraph/scip-typescript";
+  else if (existsSync(join(repo, "pyproject.toml")) || existsSync(join(repo, "setup.py")))
+    indexer = "@sourcegraph/scip-python";
+  else return { status: "unsupported", message: "No tsconfig.json or pyproject.toml found — nothing to index." };
+
+  const r = spawnSync("npx", ["--yes", indexer, "index", "--output", out], { cwd: repo, encoding: "utf8" });
+  if (r.status === 0) {
+    return {
+      status: "indexed",
+      message: `Indexed with ${indexer} → ${join(repo, out)}. Blast radius is now compiler-grade (SCIP).`,
+    };
+  }
+  return {
+    status: "failed",
+    message:
+      `Indexer failed (exit ${r.status ?? "?"}). Ensure the project's deps are installed and it typechecks.\n` +
+      (r.stderr || r.stdout || "").slice(0, 600),
+  };
+}
+
+/** Is there a SCIP index already on disk for this repo? */
+function hasScipIndex(repo: string): boolean {
+  return existsSync(join(repo, "index.scip")) || existsSync(join(repo, ".splus-cache", "index.scip"));
+}
+
 server.registerTool(
   "index",
   {
@@ -525,29 +579,8 @@ server.registerTool(
     annotations: { readOnlyHint: false, openWorldHint: true },
   },
   async ({ root }) => {
-    const repo = rootOf(root);
-    mkdirSync(join(repo, ".splus-cache"), { recursive: true });
-    const out = join(".splus-cache", "index.scip");
-    let indexer: string;
-    if (existsSync(join(repo, "tsconfig.json"))) indexer = "@sourcegraph/scip-typescript";
-    else if (existsSync(join(repo, "pyproject.toml")) || existsSync(join(repo, "setup.py")))
-      indexer = "@sourcegraph/scip-python";
-    else return fail("No tsconfig.json or pyproject.toml found — nothing to index here.");
-
-    const r = spawnSync("npx", ["--yes", indexer, "index", "--output", out], {
-      cwd: repo,
-      encoding: "utf8",
-    });
-    if (r.status === 0) {
-      return ok(
-        `Indexed with ${indexer} → ${join(repo, out)}. \`review\` will auto-detect it for precise ` +
-          `(compiler-grade) blast radius.`,
-      );
-    }
-    return fail(
-      `Indexer failed (exit ${r.status ?? "?"}). Ensure the project's deps are installed and it ` +
-        `typechecks.\n${(r.stderr || r.stdout || "").slice(0, 600)}`,
-    );
+    const r = buildScipIndex(rootOf(root));
+    return r.status === "indexed" ? ok(`${r.message} \`review\` will auto-detect it.`) : fail(r.message);
   },
 );
 
