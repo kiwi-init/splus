@@ -44,7 +44,13 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const server = new McpServer({ name: "splus", version: "0.3.2" });
+// Inlined from packages/mcp/package.json at bundle time (esbuild `define` in
+// scripts/build-release.mjs) so the reported version can never drift from the
+// package. Falls back to "dev" when run straight from the tsc output.
+declare const __SPLUS_VERSION__: string;
+const VERSION = typeof __SPLUS_VERSION__ !== "undefined" ? __SPLUS_VERSION__ : "dev";
+
+const server = new McpServer({ name: "splus", version: VERSION });
 
 type ReviewMode = "working" | "staged" | "base" | "all";
 

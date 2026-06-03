@@ -15,9 +15,12 @@
  * bundle but only initializes when `review llm:true` is used.
  */
 import { build } from "esbuild";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 
 mkdirSync("dist-release", { recursive: true });
+
+// Single source of truth for the MCP server's reported version: its package.json.
+const { version } = JSON.parse(readFileSync("packages/mcp/package.json", "utf8"));
 
 // Note: the compiled entrypoint already carries a `#!/usr/bin/env node` hashbang,
 // which esbuild preserves on line 1 — so we do NOT add a banner (that would emit
@@ -29,6 +32,7 @@ await build({
   target: "node20",
   logLevel: "info",
   legalComments: "none",
+  define: { __SPLUS_VERSION__: JSON.stringify(version) },
   entryPoints: ["packages/mcp/dist/index.js"],
   outfile: "dist-release/mcp.cjs",
 });
