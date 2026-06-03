@@ -1,8 +1,8 @@
 name: Release
 
 # Tag a version (e.g. `git tag v0.3.1 && git push --tags`) to cut a release.
-# Builds the deterministic engine for each platform, bundles the CLI + MCP server
-# into single .cjs files, and publishes a GitHub Release with per-platform
+# Builds the deterministic engine for each platform, bundles the MCP server
+# into a single .cjs file, and publishes a GitHub Release with per-platform
 # tarballs + SHA256SUMS. The installer (install.sh) pulls these via the stable
 # `releases/latest/download/splus-<os>-<arch>.tar.gz` URL.
 #
@@ -57,17 +57,17 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Build + bundle CLI and MCP
+      - name: Build + bundle MCP server
         run: |
           pnpm --filter @splus/shared --filter @splus/suppression \
-               --filter @splus/triage --filter @splus/cli --filter @splus/mcp build
+               --filter @splus/triage --filter @splus/mcp build
           pnpm build:release
 
       - name: Package tarball
         run: |
           mkdir -p staging
           cp "target/${{ matrix.target }}/release/splus-engine" staging/
-          cp dist-release/cli.cjs dist-release/mcp.cjs staging/
+          cp dist-release/mcp.cjs staging/
           tar -czf "splus-${{ matrix.name }}.tar.gz" -C staging .
 
       - uses: actions/upload-artifact@v4

@@ -11,7 +11,7 @@
 #   SPLUS_VERSION     pin a release tag (e.g. v0.3.0); default: latest
 #   SPLUS_INSTALL_DIR install prefix; default: $HOME/.splus
 #   SPLUS_LOCAL_DIST  install from a local dir of built artifacts instead of
-#                     downloading (expects splus-engine, cli.cjs, mcp.cjs) —
+#                     downloading (expects splus-engine, mcp.cjs) —
 #                     used for local testing of this script
 #   SPLUS_NO_MODIFY_PATH=1  don't touch shell rc files
 #   SPLUS_NO_WIRE=1         don't auto-wire coding agents
@@ -56,7 +56,7 @@ trap 'rm -rf "$tmp"' EXIT
 if [ -n "${SPLUS_LOCAL_DIST:-}" ]; then
   say "using local dist: $SPLUS_LOCAL_DIST"
   cp "$SPLUS_LOCAL_DIST/splus-engine" "$tmp/" || die "missing splus-engine in SPLUS_LOCAL_DIST"
-  cp "$SPLUS_LOCAL_DIST/cli.cjs" "$SPLUS_LOCAL_DIST/mcp.cjs" "$tmp/" || die "missing cli.cjs/mcp.cjs in SPLUS_LOCAL_DIST"
+  cp "$SPLUS_LOCAL_DIST/mcp.cjs" "$tmp/" || die "missing mcp.cjs in SPLUS_LOCAL_DIST"
   version="local"
 else
   if command -v curl >/dev/null 2>&1; then dl() { curl -fsSL "$1" -o "$2"; }
@@ -92,22 +92,16 @@ fi
 
 # --- place binaries + wrappers --------------------------------------------
 install -m 0755 "$tmp/splus-engine" "$BIN_DIR/splus-engine"
-install -m 0644 "$tmp/cli.cjs" "$LIB_DIR/cli.cjs"
 install -m 0644 "$tmp/mcp.cjs" "$LIB_DIR/mcp.cjs"
 
-cat > "$BIN_DIR/splus" <<EOF
-#!/bin/sh
-export SPLUS_ENGINE="\${SPLUS_ENGINE:-$BIN_DIR/splus-engine}"
-exec node "$LIB_DIR/cli.cjs" "\$@"
-EOF
 cat > "$BIN_DIR/splus-mcp" <<EOF
 #!/bin/sh
 export SPLUS_ENGINE="\${SPLUS_ENGINE:-$BIN_DIR/splus-engine}"
 exec node "$LIB_DIR/mcp.cjs" "\$@"
 EOF
-chmod 0755 "$BIN_DIR/splus" "$BIN_DIR/splus-mcp"
+chmod 0755 "$BIN_DIR/splus-mcp"
 printf '%s\n' "$version" > "$INSTALL_DIR/version"
-ok "installed splus, splus-mcp, splus-engine → $BIN_DIR"
+ok "installed splus-mcp, splus-engine → $BIN_DIR"
 
 # --- PATH ------------------------------------------------------------------
 case ":$PATH:" in
@@ -121,7 +115,7 @@ case ":$PATH:" in
         printf '\n# Splus\n%s\n' "$line" >> "$rc"
         ok "added $BIN_DIR to PATH in $(basename "$rc")"
       done
-      warn "open a new shell (or run: export PATH=\"$BIN_DIR:\$PATH\") to use \`splus\`"
+      warn "open a new shell (or run: export PATH=\"$BIN_DIR:\$PATH\") to use \`splus-engine\` directly"
     fi
     ;;
 esac
@@ -190,4 +184,4 @@ fi
 # --- done ------------------------------------------------------------------
 printf '\n%b\n' "${c_grn}${c_b}Splus is installed.${c_0}"
 printf '%b\n' "  ${c_dim}then, in your agent:${c_0} \"review my staged changes with splus\""
-printf '%b\n' "  ${c_dim}terminal:${c_0} splus review --staged    ${c_dim}·${c_0}    splus update"
+printf '%b\n' "  ${c_dim}update:${c_0} re-run  curl -fsSL https://splus.sh/install.sh | sh"
