@@ -292,16 +292,22 @@ server.registerTool(
     // Learned suppression (on by default): drop findings already dismissed on
     // this repo (exact, rule-mute, or semantically similar). Best-effort.
     let suppressed: SuppressedFinding[] = [];
+    let reinforcedIds: string[] = [];
     if (applyLearnings !== false) {
       try {
         const store = new FileSuppressionStore(learningsPath(repo));
         const r = await applySuppression(report, store);
         report = withFindings(report, r.kept, r.suppressed.length);
         suppressed = r.suppressed;
+        reinforcedIds = r.reinforced.map((x) => x.id);
       } catch {
         /* never block a review on the suppression store */
       }
     }
+    const reinforcedNote =
+      reinforcedIds.length > 0
+        ? `\n\nReinforced (resemble findings this repo previously confirmed real — surface these first): ${reinforcedIds.join(", ")}`
+        : "";
 
     // Optional LLM triage (opt-in). Dynamically imported so the Anthropic SDK is
     // only loaded when actually used. Falls back to deterministic on any error.
@@ -314,7 +320,7 @@ server.registerTool(
           changedFiles: listChangedFiles(repo, dmode),
         });
         return ok(
-          `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(toAgentTriaged(triaged), null, 2)}`,
+          `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(toAgentTriaged(triaged), null, 2)}${reinforcedNote}`,
         );
       } catch (e) {
         process.stderr.write(
@@ -325,7 +331,7 @@ server.registerTool(
     }
 
     const payload = toAgentReport(report, suppressed);
-    const body = `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(payload, null, 2)}`;
+    const body = `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(payload, null, 2)}${reinforcedNote}`;
     // The handoff: ground the agent, then drive it through the discovery pass.
     if (discovery === false) return ok(body);
     return ok(`${body}\n\n${discoveryDirective(listChangedFiles(repo, dmode))}`);
@@ -388,6 +394,64 @@ server.registerTool(
       found
         ? `Dismissed ${id} (${found.rule_id}). Splus won't flag it — or close variants — on this repo again.`
         : `Dismissed ${id} (exact match only — it wasn't in the current diff, so no semantic generalization).`,
+    );
+  },
+);
+
+// --- accept ----------------------------------------------------------------
+
+server.registerTool(
+  "accept",
+  {
+    title: "Accept a finding (teach the reviewer what matters here)",
+    description:
+      "Teach Splus that a finding was REAL and worth surfacing on THIS repo, by its `id` from a " +
+      "prior review. The inverse of `dismiss`: it never suppresses anything — it builds positive " +
+      "memory so that future findings resembling this confirmed-real one are reinforced (ranked " +
+      "higher), so the review learns what this repo's reviewers actually care about. Call it when " +
+      "the user acts on / agrees with a finding (including agent-discovered ones). Written to " +
+      ".splus-cache/learnings.json in the repo.",
+    inputSchema: {
+      root: z.string().optional().describe("Repo root (default: server CWD)."),
+      id: z.string().describe("The finding id (fingerprint) to accept, as returned by `review`."),
+      ruleId: z.string().optional().describe("The finding's rule id (improves reinforcement matching)."),
+      text: z
+        .string()
+        .optional()
+        .describe("The finding's text (title + rationale). For agent-discovered findings not in the engine's output, pass it so reinforcement can generalize."),
+      mode: z.enum(["working", "staged", "base", "all"]).optional().describe("Where to look up the finding's text (default 'working')."),
+      base: z.string().optional().describe("Base git ref — used when mode='base'."),
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true },
+  },
+  async ({ root, id, ruleId, text, mode, base }) => {
+    const repo = rootOf(root);
+    const m = (mode ?? "working") as ReviewMode;
+    const store = new FileSuppressionStore(learningsPath(repo));
+
+    // Recover the finding's text from the engine if not supplied (best-effort).
+    let found: Finding | undefined;
+    if (!text) {
+      try {
+        if (!(m === "base" && !base)) {
+          const report = await runEngine({ root: repo, mode: toMode(m, base ?? null) });
+          found = report.findings.find((f) => f.id === id);
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+
+    await store.record({
+      fingerprint: id,
+      rule_id: found?.rule_id ?? ruleId ?? "unknown",
+      text: text ?? (found ? candidateText(found) : ""),
+      scope: "fingerprint",
+      signal: "accepted",
+    });
+
+    return ok(
+      `Accepted ${id}. Splus will reinforce findings like this one on this repo going forward.`,
     );
   },
 );

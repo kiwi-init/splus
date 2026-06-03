@@ -1,10 +1,15 @@
 /**
- * @splus/suppression — the learned, per-repo noise filter (the compounding moat).
+ * @splus/suppression — the learned, per-repo memory (the compounding moat).
  *
- * Three tiers, cheapest first:
+ * Negative memory (suppress noise), cheapest first:
  *   1. exact      — the same finding (by fingerprint) was dismissed before.
  *   2. rule-mute  — the whole rule was muted for this repo.
  *   3. semantic   — cosine-similar to a dismissed finding (feature-hash embedder).
+ *
+ * Positive memory (reinforce signal):
+ *   4. reinforce  — cosine-similar to a finding a reviewer CONFIRMED real (accepted).
+ *                   Never suppresses; raises the finding's priority so the review
+ *                   learns what THIS repo's reviewers actually care about.
  *
  * Scoped per repo (one store = one repo's learnings) to avoid cross-team
  * contamination — the exact trap that makes competitors noisy.
@@ -23,8 +28,11 @@ export interface DismissedEntry {
   rule_id: string;
   /** Text used for semantic comparison: `${rule_id} ${title} ${message}`. */
   text: string;
-  /** What we learned from. */
-  signal: "dismissed" | "downvoted" | "muted";
+  /**
+   * What we learned from. Negative signals (`dismissed`/`downvoted`/`muted`)
+   * suppress; `accepted` is positive memory — a finding a reviewer confirmed real.
+   */
+  signal: "dismissed" | "downvoted" | "muted" | "accepted";
   /** "fingerprint" = this specific finding; "rule" = every finding of this rule. */
   scope: "fingerprint" | "rule";
   /** ISO timestamp (caller-supplied; the deterministic engine never stamps time). */
@@ -42,6 +50,9 @@ export interface Decision {
   reason: string;
   kind?: "exact" | "rule" | "semantic";
   similarity?: number;
+  /** Positive memory: similar to a finding a reviewer confirmed real (accepted). */
+  reinforce?: boolean;
+  reinforcement?: number;
 }
 
 export interface SuppressionStore {
@@ -54,6 +65,8 @@ export interface SuppressionStore {
 // a real new bug is worse than one extra nit.
 const SAME_RULE_THRESHOLD = 0.82;
 const CROSS_RULE_THRESHOLD = 0.93;
+// Reinforcement is more liberal: a false boost only nudges ranking, never hides.
+const REINFORCE_THRESHOLD = 0.8;
 
 /**
  * Security findings (secrets, injection/eval sinks) are exempt from the semantic
@@ -72,24 +85,26 @@ function semanticEligible(ruleId: string): boolean {
   return !/^(secret|security)\./.test(ruleId);
 }
 
-function decide(
-  candidate: Candidate,
-  fpSet: Set<string>,
-  ruleSet: Set<string>,
-  semantic: Array<{ rule_id: string; vec: number[] }>,
-  embedder?: Embedder,
-): Decision {
-  if (fpSet.has(candidate.fingerprint)) {
+interface Indexes {
+  fpSet: Set<string>;
+  ruleSet: Set<string>;
+  semanticNeg: Array<{ rule_id: string; vec: number[] }>;
+  semanticPos: Array<{ rule_id: string; vec: number[] }>;
+}
+
+function decide(candidate: Candidate, idx: Indexes, embedder?: Embedder): Decision {
+  if (idx.fpSet.has(candidate.fingerprint)) {
     return { suppress: true, kind: "exact", reason: "previously dismissed (exact match)" };
   }
-  if (ruleSet.has(candidate.rule_id)) {
+  if (idx.ruleSet.has(candidate.rule_id)) {
     return { suppress: true, kind: "rule", reason: `rule '${candidate.rule_id}' is muted for this repo` };
   }
-  if (semanticEligible(candidate.rule_id) && embedder && semantic.length > 0) {
-    const vec = embedder.embed(candidate.text);
+  const vec = embedder ? embedder.embed(candidate.text) : null;
+  // Negative memory: suppress noise like something dismissed before.
+  if (vec && semanticEligible(candidate.rule_id) && idx.semanticNeg.length > 0) {
     let best = 0;
     let bestSameRule = 0;
-    for (const e of semantic) {
+    for (const e of idx.semanticNeg) {
       const sim = cosine(vec, e.vec);
       if (sim > best) best = sim;
       if (e.rule_id === candidate.rule_id && sim > bestSameRule) bestSameRule = sim;
@@ -103,20 +118,39 @@ function decide(
       };
     }
   }
+  // Positive memory: reinforce signal like something a reviewer confirmed real.
+  // Not gated by `semanticEligible` — reinforcing a real security finding is safe
+  // (it never suppresses, only raises priority).
+  if (vec && idx.semanticPos.length > 0) {
+    let best = 0;
+    for (const e of idx.semanticPos) {
+      const sim = cosine(vec, e.vec);
+      if (sim > best) best = sim;
+    }
+    if (best >= REINFORCE_THRESHOLD) {
+      return { suppress: false, reason: "", reinforce: true, reinforcement: best };
+    }
+  }
   return { suppress: false, reason: "" };
 }
 
-function buildIndexes(entries: DismissedEntry[], embedder?: Embedder) {
+function buildIndexes(entries: DismissedEntry[], embedder?: Embedder): Indexes {
   const fpSet = new Set<string>();
   const ruleSet = new Set<string>();
-  const semantic: Array<{ rule_id: string; vec: number[] }> = [];
+  const semanticNeg: Array<{ rule_id: string; vec: number[] }> = [];
+  const semanticPos: Array<{ rule_id: string; vec: number[] }> = [];
   for (const e of entries) {
+    if (e.signal === "accepted") {
+      // Positive memory: an accepted finding never suppresses; it reinforces.
+      if (embedder) semanticPos.push({ rule_id: e.rule_id, vec: embedder.embed(e.text) });
+      continue;
+    }
     if (e.scope === "rule") ruleSet.add(e.rule_id);
     else fpSet.add(e.fingerprint);
     // Every dismissed entry contributes to semantic matching (catches near-dups).
-    if (embedder) semantic.push({ rule_id: e.rule_id, vec: embedder.embed(e.text) });
+    if (embedder) semanticNeg.push({ rule_id: e.rule_id, vec: embedder.embed(e.text) });
   }
-  return { fpSet, ruleSet, semantic };
+  return { fpSet, ruleSet, semanticNeg, semanticPos };
 }
 
 // ---------------------------------------------------------------------------
@@ -154,9 +188,9 @@ export class FileSuppressionStore implements SuppressionStore {
   }
 
   async evaluate(candidates: Candidate[], opts?: { embedder?: Embedder }): Promise<Map<string, Decision>> {
-    const { fpSet, ruleSet, semantic } = buildIndexes(this.load().entries, opts?.embedder);
+    const idx = buildIndexes(this.load().entries, opts?.embedder);
     const out = new Map<string, Decision>();
-    for (const c of candidates) out.set(c.fingerprint, decide(c, fpSet, ruleSet, semantic, opts?.embedder));
+    for (const c of candidates) out.set(c.fingerprint, decide(c, idx, opts?.embedder));
     return out;
   }
 
@@ -202,12 +236,21 @@ export function candidateText(f: Finding): string {
   return `${f.rule_id} ${f.title} ${f.message}`;
 }
 
-/** Partition a report's findings into kept vs learned-suppressed. */
+/** A kept finding the positive memory recognized as confirmed-real-like. */
+export interface ReinforcedFinding {
+  id: string;
+  reinforcement: number;
+}
+
+/**
+ * Partition a report's findings into kept vs learned-suppressed, and flag the
+ * kept findings that positive memory reinforced (similar to a confirmed-real one).
+ */
 export async function applySuppression(
   report: Report,
   store: SuppressionStore,
   opts?: { embedder?: Embedder },
-): Promise<{ kept: Finding[]; suppressed: SuppressedFinding[] }> {
+): Promise<{ kept: Finding[]; suppressed: SuppressedFinding[]; reinforced: ReinforcedFinding[] }> {
   const embedder = opts?.embedder ?? hashEmbedder();
   const candidates: Candidate[] = report.findings.map((f) => ({
     fingerprint: f.id,
@@ -218,10 +261,15 @@ export async function applySuppression(
 
   const kept: Finding[] = [];
   const suppressed: SuppressedFinding[] = [];
+  const reinforced: ReinforcedFinding[] = [];
   for (const f of report.findings) {
     const d = decisions.get(f.id);
-    if (d?.suppress) suppressed.push({ ...f, suppressionReason: d.reason, suppressionKind: d.kind });
-    else kept.push(f);
+    if (d?.suppress) {
+      suppressed.push({ ...f, suppressionReason: d.reason, suppressionKind: d.kind });
+    } else {
+      kept.push(f);
+      if (d?.reinforce) reinforced.push({ id: f.id, reinforcement: d.reinforcement ?? 0 });
+    }
   }
-  return { kept, suppressed };
+  return { kept, suppressed, reinforced };
 }
