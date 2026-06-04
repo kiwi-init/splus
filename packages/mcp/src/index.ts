@@ -20,6 +20,7 @@
  *
  * Tools:
  *   review     — review staged / working / base..HEAD / whole-repo changes
+ *   report     — render the review as a standalone offline HTML report (final step)
  *   dismiss    — teach Splus a finding is noise (generalizes semantically)
  *   mute       — mute an entire rule for this repo
  *   learnings  — list what's been suppressed on this repo
@@ -43,6 +44,7 @@ import type { TriagedReport } from "@splus/triage";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { REPORT_TEMPLATE } from "./reportTemplate.js";
 
 // Inlined from packages/mcp/package.json at bundle time (esbuild `define` in
 // scripts/build-release.mjs) so the reported version can never drift from the
@@ -229,6 +231,38 @@ function discoveryDirective(files: string[]): string {
     "",
     "Before posting anything, VERIFY each candidate: re-read the cited line and try to REFUTE it — drop any you can't defend (already handled nearby, speculative, the line doesn't actually demonstrate it). A wrong comment costs more than a missed nit.",
     "Report the survivors as must-fix / concern / nit with file:line and a concrete fix. Never invent a finding; every claim cites a real line. Teach Splus as you go: `dismiss <id>` when the user agrees something is noise, `accept <id>` when they act on a real one — it learns this repo both ways.",
+    "",
+    "FINAL STEP — the shareable report: once your verification pass is done, call the `report` tool to get the standalone HTML template, fill it with the verdict + your verified findings + the impact graph, and write `splus-report.html`. That one self-contained, offline file is the deliverable a dev keeps next to the diff — it ends every review.",
+  ].join("\n");
+}
+
+/**
+ * The fill spec handed back with the report template. The agent has the VERIFIED
+ * findings (which differ from the raw deterministic floor), so the agent — not the
+ * server — fills the template; the server only ships the locked design.
+ */
+function reportInstructions(): string {
+  return [
+    "=== Splus · render the review report (final step) ===",
+    "Write the HTML template below to `splus-report.html`, then fill it from your VERIFIED review.",
+    "It must stay ONE self-contained file — all CSS/JS inline, no CDN — so it opens offline. Do NOT restyle: black background, monospace, color only for the accents the stylesheet already defines.",
+    "",
+    "Fill ONLY the regions marked  ⟦SLOT:name⟧ … ⟦/SLOT⟧  (each ships an example to replace):",
+    "  • masthead — repo, what was reviewed (`mode`), files & +added, engine version, date",
+    "  • verdict  — chip `good` \"SAFE TO MERGE\" iff must-fix == 0; else chip `bad` \"CHANGES REQUESTED\" with the must-fix count (set the matching border-left-color + box-shadow). Use chip `warn` for a triaged verdict. Merge confidence = 1–5 segments.",
+    "  • tiles    — files, added, must-fix, concern, nit, suppressed (a tile gets its accent class has-mf/has-cn/has-nt only when its count > 0)",
+    "  • prose    — 1–3 short paragraphs: what was reviewed, how blast radius resolved (heuristic vs SCIP), the headline takeaway (optional)",
+    "  • graph (DATA) — THE CENTERPIECE: one node per changed module laid out left→right by `col` (inputs → core → consumers), edges pointing the way impact propagates, `badge` = finding count, `tip` = hover card. Color hotspots with `tone`.",
+    "  • files (FILES) — the drill-down map, keyed by the same id you gave hero nodes AND each finding card's `data-file`; optional symbol-level `graph` whose nodes can carry `finding:\"f-…\"` to jump to a card",
+    "  • findings — one `<article class=\"find f-…\">` per verified finding, in tier order (must-fix → concern → nit). Render title, file:line, message, category/rule-id/anchor, the confidence bar, and any `suggestion` as a diff block (`+`/`-` lines). `data-file` MUST match a FILES key. Drop sub-blocks a finding lacks.",
+    "  • affects (AFFECTS) — optional per-finding blast-radius graph; add an entry whose `id` matches the card's `<svg>` id",
+    "  • hotspots — the modules carrying the most signal (or the cleanest)",
+    "  • footer — collectors run, blast-radius precision (heuristic vs SCIP), the `dismiss`/`accept` teach hint",
+    "",
+    "Keep the section order: Verdict → Summary → Impact graph → Findings → Hotspots → Footer. When done, tell the user the path and that it opens offline.",
+    "",
+    "--- TEMPLATE (write verbatim, then fill the slots) ---",
+    REPORT_TEMPLATE,
   ].join("\n");
 }
 
@@ -371,6 +405,26 @@ server.registerTool(
     if (discovery === false) return ok(body);
     return ok(`${body}\n\n${discoveryDirective(listChangedFiles(repo, dmode))}`);
   },
+);
+
+// --- report (final step of the review flow) --------------------------------
+
+server.registerTool(
+  "report",
+  {
+    title: "Render the review as a standalone HTML report",
+    description:
+      "The FINAL STEP of the review flow. Returns a self-contained HTML template (all CSS/JS + the " +
+      "impact graph inline — no CDN, opens offline) plus fill instructions. After you finish the " +
+      "review + verification pass, call this, fill the marked ⟦SLOT⟧ regions with the verdict, your " +
+      "verified findings, and the file-level impact graph, and write `splus-report.html`. The graph " +
+      "(files = nodes, impact = edges, hover traces blast radius, click drills into a module) is the " +
+      "centerpiece. The template is fixed/locked — you supply data only, not styling. The result is " +
+      "the shareable artifact a dev keeps next to the diff.",
+    inputSchema: {},
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  async () => ok(reportInstructions()),
 );
 
 // --- dismiss ---------------------------------------------------------------
@@ -645,7 +699,7 @@ async function main(): Promise<void> {
     ? "LLM triage available (ANTHROPIC_API_KEY set)"
     : "deterministic only (set ANTHROPIC_API_KEY for optional LLM triage)";
   process.stderr.write(
-    `splus-mcp ready (stdio) — local engine, no network · ${llm}; tools: review, dismiss, mute, learnings, index\n`,
+    `splus-mcp ready (stdio) — local engine, no network · ${llm}; tools: review, report, dismiss, mute, learnings, index\n`,
   );
 }
 

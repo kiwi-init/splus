@@ -1,0 +1,879 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>splus · review report — g-cloud #25579732</title>
+<style>
+  /* ──────────────────────────────────────────────────────────────
+     v2 — white on black, vivid accents, graph-first.
+     ────────────────────────────────────────────────────────────── */
+  :root {
+    --bg:    #000000;
+    --bg2:   #000000;   /* cards — defined by hairline borders, not fill */
+    --bg3:   #0c0c0f;   /* code / inset */
+    --fg:    #f4f5f7;
+    --fg2:   #b9bec8;
+    --muted: #7e858f;
+    --faint: #4d525b;
+    --line:  #161616;
+    --line2: #232427;
+
+    /* vivid accents */
+    --red:    #ff4d5e;
+    --orange: #ff9142;
+    --amber:  #ffc53d;
+    --blue:   #57a6ff;
+    --cyan:   #2fe3ff;
+    --purple: #b98bff;
+    --green:  #2ee6a0;
+    --info:   #8b92a0;
+
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", "Cascadia Code", monospace;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; background:#000; color:var(--fg);
+    font-family:var(--mono); font-size:13px; line-height:1.55; letter-spacing:-0.1px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:920px; margin:0 auto; padding:40px 28px 110px; }
+  a { color:var(--blue); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+
+  /* ── Masthead ───────────────────────────────────────────────── */
+  .mast { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
+  .brand { display:flex; align-items:center; gap:11px; }
+  .brand .dot { width:10px; height:10px; border-radius:50%; background:var(--cyan);
+                box-shadow:0 0 10px var(--cyan); }
+  .brand .name { font-weight:700; font-size:16px; letter-spacing:0.5px; }
+  .brand .sub { color:var(--muted); font-size:12px; }
+  .mast .meta { text-align:right; color:var(--muted); font-size:12px; line-height:1.7; }
+  .mast .meta b { color:var(--fg); font-weight:600; }
+
+  /* ── Verdict ────────────────────────────────────────────────── */
+  .verdict { margin-top:24px; border:1px solid var(--line2); border-left:3px solid var(--green);
+             border-radius:var(--radius); padding:16px 18px; background:var(--bg2);
+             box-shadow:0 0 28px rgba(46,230,160,0.06);
+             display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+  .chip { display:inline-flex; align-items:center; gap:8px; font-weight:700; font-size:12px;
+          letter-spacing:0.6px; padding:6px 12px; border-radius:999px; border:1px solid currentColor; }
+  .chip.good { color:var(--green); }
+  .chip .pulse { width:7px; height:7px; border-radius:50%; background:currentColor; box-shadow:0 0 8px currentColor; }
+  .verdict .say { color:var(--fg2); flex:1 1 240px; }
+  .verdict .say b { color:var(--fg); }
+  .conf { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:12px; white-space:nowrap; }
+  .conf .seg { display:flex; gap:3px; }
+  .conf .seg i { width:15px; height:9px; border-radius:2px; background:var(--line2); }
+  .conf .seg i.on { background:var(--green); box-shadow:0 0 7px rgba(46,230,160,0.6); }
+
+  /* ── Section rule ───────────────────────────────────────────── */
+  .rule { display:flex; align-items:center; gap:12px; margin:40px 0 16px; }
+  .rule__label { font-size:11px; letter-spacing:1.8px; color:var(--muted); font-weight:700; white-space:nowrap; }
+  .rule::after { content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--line2),transparent); }
+  .rule .n { color:var(--faint); font-weight:600; }
+
+  /* ── Tiles ──────────────────────────────────────────────────── */
+  .tiles { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+  .tile { border:1px solid var(--line); border-radius:var(--radius); padding:13px; background:var(--bg2); }
+  .tile .k { font-size:27px; font-weight:700; line-height:1; letter-spacing:-0.5px; }
+  .tile .l { margin-top:7px; font-size:10.5px; letter-spacing:0.5px; color:var(--muted); text-transform:uppercase; }
+  .tile.has-mf .k { color:var(--red); }
+  .tile.has-cn .k { color:var(--amber); }
+  .tile.has-nt .k { color:var(--blue); }
+  @media (max-width:720px){ .tiles { grid-template-columns:repeat(3,1fr); } }
+
+  .prose { border:1px solid var(--line); border-radius:var(--radius); padding:18px 20px; background:var(--bg2); margin-top:18px; }
+  .prose p { margin:0 0 11px; color:var(--fg2); } .prose p:last-child { margin:0; }
+  .prose strong { color:var(--fg); } .prose .hl { color:var(--cyan); }
+  .prose code, footer code {
+    background:var(--bg3); border:1px solid var(--line2); border-radius:4px; padding:1px 5px; font-size:12px; color:var(--fg); }
+  /* inline code inside a finding: severity-tinted + bold, NO box, so the sentence reads as prose */
+  .find code { background:none; border:none; padding:0; font-weight:700; color:var(--fg); }
+  .find.f-medium code   { color:var(--amber); }
+  .find.f-low code      { color:var(--blue); }
+  .find.f-high code     { color:var(--orange); }
+  .find.f-critical code { color:var(--red); }
+  .drill-note code, #cleanNote code { color:var(--cyan); font-weight:600; }
+
+  /* ── Graph canvas (shared) ──────────────────────────────────── */
+  .canvas { position:relative; border:1px solid var(--line); border-radius:var(--radius); background:#000; overflow:hidden; }
+  .canvas.hero { padding:8px; }
+  svg.graph { width:100%; height:auto; display:block; }
+
+  .graph .edge { fill:none; stroke:var(--line2); stroke-width:1.5; }
+  .graph .edge.tone-hub     { stroke:var(--cyan); }
+  .graph .edge.tone-concern { stroke:var(--amber); }
+  .graph .edge.tone-nit     { stroke:var(--blue); }
+  .graph .edge.tone-api     { stroke:var(--purple); }
+  .graph .edge.affected     { stroke-width:2.1; }
+  .graph .edge.tone-concern.affected { filter:drop-shadow(0 0 4px rgba(255,197,61,.65)); }
+  .graph .edge.tone-nit.affected     { filter:drop-shadow(0 0 4px rgba(87,166,255,.65)); }
+  .graph .elabel-bg { fill:var(--bg); opacity:0.92; }
+  .graph .elabel { fill:var(--muted); font-size:9px; letter-spacing:0.2px; }
+  .graph .elabel.lit { fill:var(--fg); }
+
+  .graph .node rect { fill:var(--bg3); stroke:var(--line2); stroke-width:1.4; }
+  .graph .node .nm { font-weight:700; fill:var(--fg); }
+  .graph .node .sb { fill:var(--muted); }
+  .graph .node.tone-hub rect     { stroke:var(--cyan);   filter:drop-shadow(0 0 7px rgba(47,227,255,.42)); }
+  .graph .node.tone-concern rect { stroke:var(--amber);  filter:drop-shadow(0 0 7px rgba(255,197,61,.40)); }
+  .graph .node.tone-nit rect     { stroke:var(--blue);   filter:drop-shadow(0 0 7px rgba(87,166,255,.38)); }
+  .graph .node.tone-mustfix rect { stroke:var(--red);    filter:drop-shadow(0 0 8px rgba(255,77,94,.5)); }
+  .graph .node.subject rect { stroke-width:2.2; }
+  .graph .node .badge { filter:drop-shadow(0 0 5px rgba(255,197,61,.7)); }
+  .graph .node .badge-t { fill:#0a0b0d; font-weight:800; }
+
+  svg.graph.focus .node { opacity:0.28; } svg.graph.focus .node.lit { opacity:1; }
+  svg.graph.focus .edge { opacity:0.10; } svg.graph.focus .edge.lit { opacity:1; }
+  svg.graph.focus .elabel, svg.graph.focus .elabel-bg { opacity:0.10; }
+  svg.graph.focus .elabel.lit, svg.graph.focus .elabel-bg.lit { opacity:0.92; }
+  svg.graph.focus .elabel.lit { opacity:1; }
+
+  .legend { display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; padding:0 2px; color:var(--muted); font-size:11px; }
+  .legend span { display:inline-flex; align-items:center; gap:7px; }
+  .legend i { width:12px; height:12px; border-radius:3px; border:2px solid; background:transparent; }
+  .legend i.cyan{border-color:var(--cyan);box-shadow:0 0 6px var(--cyan)} .legend i.amber{border-color:var(--amber)}
+  .legend i.purple{border-color:var(--purple)} .legend .ln{width:18px;height:0;border:none;border-top:2px dashed var(--purple);border-radius:0}
+
+  .gtip { position:fixed; pointer-events:none; z-index:1000; opacity:0; transform:translate(-50%,-118%);
+          transition:opacity .08s; background:#05060a; border:1px solid var(--line2); color:var(--fg);
+          border-radius:8px; padding:10px 12px; font-size:11px; line-height:1.6; max-width:280px;
+          box-shadow:0 14px 40px rgba(0,0,0,0.7); }
+  .gtip.below { transform:translate(-50%,14%); }
+  .gtip b { color:var(--cyan); } .gtip .p { color:var(--muted); } .gtip .api { color:var(--purple); }
+
+  /* animated flow — dashes travel source→target so impact direction reads live */
+  @keyframes flow { to { stroke-dashoffset:-22; } }
+  svg.graph.flow .edge { stroke-dasharray:5 6; animation:flow 1.6s linear infinite; }
+  svg.graph.flow .edge.affected,
+  svg.graph.flow .edge.lit { animation-duration:0.7s; }
+  /* affects graphs: only the broken edge travels, context edges stay calm */
+  svg.graph.flow-affected .edge.affected { stroke-dasharray:5 6; animation:flow 0.85s linear infinite; }
+  @media (prefers-reduced-motion: reduce){ svg.graph.flow .edge, svg.graph.flow-affected .edge { animation:none; } }
+  .graph .node.clickable { cursor:pointer; }
+  .graph .node .exp { fill:none; stroke:var(--faint); stroke-width:1.2; }
+  .graph .node.lit .exp, .graph .node.sticky .exp { stroke:var(--cyan); }
+  .graph .node.sticky rect { stroke:var(--cyan); stroke-width:2.2; }
+
+  /* drill-down: click a file node → its internal function graph */
+  .drill { margin-top:12px; border:1px solid var(--line2); border-radius:var(--radius); overflow:hidden;
+           animation:fade .18s ease; }
+  @keyframes fade { from { opacity:0; transform:translateY(-4px); } }
+  .drill-head { display:flex; align-items:center; justify-content:space-between; gap:12px;
+                padding:11px 15px; border-bottom:1px solid var(--line); font-size:11.5px; color:var(--muted); }
+  .drill-head .ttl b { color:var(--cyan); font-weight:700; }
+  .drill-head .ttl .c { color:var(--faint); }
+  .drill-clear { background:none; border:1px solid var(--line2); color:var(--muted); border-radius:6px;
+                 padding:4px 10px; font:inherit; font-size:10.5px; cursor:pointer; }
+  .drill-clear:hover { color:var(--fg); border-color:var(--faint); }
+  .drill .canvas { border:none; border-radius:0; }
+  .drill-note { padding:10px 15px; color:var(--muted); font-size:11px; border-top:1px solid var(--line); }
+  .drill-note b { color:var(--fg2); }
+
+  /* findings filter state */
+  #focusHint { margin:0 0 14px; font-size:11.5px; color:var(--muted); display:none; align-items:center; gap:10px; }
+  #focusHint.on { display:flex; }
+  #focusHint b { color:var(--cyan); }
+  #focusHint .all { color:var(--blue); cursor:pointer; border:none; background:none; font:inherit; font-size:11.5px; }
+  #focusHint .all:hover { text-decoration:underline; }
+  .find.hidden { display:none; }
+  #cleanNote { display:none; border:1px dashed var(--line2); border-radius:var(--radius);
+               padding:16px 18px; color:var(--muted); font-size:12px; }
+  #cleanNote.on { display:block; }
+  #cleanNote b { color:var(--green); }
+  .find { transition:box-shadow .25s ease; }
+  .find.flash { box-shadow:0 0 0 1px var(--cyan), 0 0 26px rgba(47,227,255,.28); }
+
+  /* ── self-review: verification verdict tones ─────────────────── */
+  .chip.warn { color:var(--amber); }
+  .find.f-real     { border-left-color:var(--red); }
+  .find.f-fixture  { border-left-color:var(--purple); }
+  .find.f-bydesign { border-left-color:var(--faint); }
+  .vchip { font-size:10px; letter-spacing:0.8px; text-transform:uppercase; padding:2px 8px; border-radius:5px;
+           border:1px solid currentColor; white-space:nowrap; }
+  .vchip.real     { color:var(--red); }
+  .vchip.info     { color:var(--blue); }
+  .vchip.fixture  { color:var(--purple); }
+  .vchip.bydesign { color:var(--faint); }
+  .graph .node .badge { fill:var(--amber); }
+  .graph .node .badge.fx { fill:var(--purple); }
+  .graph .node .badge.rl { fill:var(--red); }
+  .graph .node.tone-fixture rect  { stroke:var(--purple); filter:drop-shadow(0 0 7px rgba(185,139,255,.40)); }
+  .graph .node.tone-bydesign rect { stroke:var(--line2); }
+  .graph .edge.tone-fixture { stroke:var(--purple); }
+  .graph .edge.tone-fixture.affected { filter:drop-shadow(0 0 4px rgba(185,139,255,.6)); }
+  .legend i.purple2 { border-color:var(--purple); box-shadow:0 0 6px rgba(185,139,255,.5); }
+  .vbreak { display:flex; gap:7px; align-items:center; font-size:11.5px; color:var(--muted); white-space:nowrap; flex-wrap:wrap; }
+  .vbreak b { font-weight:700; }
+  .vbreak .r{color:var(--red)} .vbreak .f{color:var(--purple)} .vbreak .d{color:var(--faint)} .vbreak .i{color:var(--blue)}
+  .clset { margin:13px 0 2px; font-size:11.5px; color:var(--muted); padding-left:18px; }
+  .clset li { margin:5px 0; }
+  .find.f-real code     { color:var(--red); }
+  .find.f-fixture code  { color:var(--purple); }
+  .find.f-bydesign code { color:var(--fg2); }
+
+  /* ── Findings ───────────────────────────────────────────────── */
+  .find { border:1px solid var(--line2); border-left-width:2px; border-radius:var(--radius); margin-bottom:16px; background:var(--bg2); overflow:hidden; }
+  .find.f-medium { border-left-color:var(--amber); }
+  .find.f-low    { border-left-color:var(--blue); }
+  .find.f-high   { border-left-color:var(--orange); }
+  .find.f-critical { border-left-color:var(--red); }
+  .find > header { display:flex; align-items:flex-start; gap:14px; padding:16px 18px 15px; }
+  .sev { display:inline-flex; align-items:center; gap:8px; font-size:11px; font-weight:700; letter-spacing:0.5px; white-space:nowrap; }
+  .sev .d { width:10px; height:10px; border-radius:50%; }
+  .sev.critical{color:var(--red)} .sev.critical .d{background:var(--red);box-shadow:0 0 9px var(--red)}
+  .sev.high{color:var(--orange)} .sev.high .d{background:var(--orange);box-shadow:0 0 9px var(--orange)}
+  .sev.medium{color:var(--amber)} .sev.medium .d{background:var(--amber);box-shadow:0 0 9px var(--amber)}
+  .sev.low{color:var(--blue)} .sev.low .d{background:var(--blue);box-shadow:0 0 9px var(--blue)}
+  .sev.info{color:var(--info)} .sev.info .d{background:var(--info)}
+  .find header .h { flex:1; min-width:0; }
+  .find header .title { font-weight:700; font-size:15px; letter-spacing:-0.2px; line-height:1.35; }
+  .find header .title code { font-size:13.5px; }
+  .find header .loc { margin-top:6px; color:var(--muted); font-size:11.5px; display:flex; gap:10px; align-items:center; }
+  .find header .loc a { color:var(--muted); }
+  .find header .loc a:hover { color:var(--blue); }
+  .find header .loc .lines { color:var(--faint); }
+  .tier { font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:var(--faint); white-space:nowrap; padding-top:2px; }
+  .find .body { padding:4px 18px 18px; }
+  .msg { color:var(--fg2); margin:0 0 16px; max-width:64ch; }
+  /* metadata: one quiet line, not chip soup */
+  .meta { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:11.5px; color:var(--muted);
+          margin:0 0 18px; padding-bottom:16px; border-bottom:1px solid var(--line); }
+  .meta .cat { color:var(--fg2); font-weight:600; }
+  .meta .rid { color:var(--muted); }
+  .meta .src { color:var(--faint); }
+  .meta .sep { color:var(--faint); }
+  .meta .conf { margin-left:auto; display:flex; align-items:center; gap:8px; white-space:nowrap; }
+  .meta .conf b { color:var(--fg2); font-weight:600; }
+  .meta .conf .bar { width:46px; height:4px; border-radius:2px; background:var(--line2); overflow:hidden; }
+  .meta .conf .bar i { display:block; height:100%; background:var(--blue); }
+
+  /* affects strip */
+  .affects { margin-bottom:14px; }
+  .affects .cap { font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:var(--muted);
+                  margin-bottom:7px; display:flex; align-items:center; gap:8px; }
+  .affects .cap .tag { color:var(--green); border:1px solid var(--green); border-radius:999px; padding:1px 8px; font-size:9.5px; letter-spacing:0.5px; }
+  .affects .cap .tag.spread { color:var(--amber); border-color:var(--amber); }
+  .affects .note { margin-top:8px; color:var(--muted); font-size:11px; }
+  .affects .note b { color:var(--fg2); }
+
+  /* code / diff */
+  .code { border:1px solid var(--line2); border-radius:7px; overflow:hidden; background:var(--bg3); }
+  .code .cap { font-size:10.5px; letter-spacing:0.6px; text-transform:uppercase; color:var(--muted);
+               padding:8px 13px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; }
+  .code pre { margin:0; padding:11px 0; overflow-x:auto; font-size:12px; line-height:1.65; }
+  .code .ln { display:block; padding:0 15px; white-space:pre; color:var(--fg2); }
+  .code .ln.add { background:rgba(46,230,160,0.10); color:#5ff0b6; box-shadow:inset 2px 0 var(--green); }
+  .code .ln.del { background:rgba(255,77,94,0.10); color:#ff8a96; box-shadow:inset 2px 0 var(--red); }
+  .code .ln .g { color:var(--faint); }
+
+  /* files table */
+  table.files { width:100%; border-collapse:collapse; font-size:12px; }
+  table.files th { text-align:left; font-size:10.5px; letter-spacing:0.6px; text-transform:uppercase; color:var(--muted);
+                   font-weight:700; padding:8px 10px; border-bottom:1px solid var(--line2); }
+  table.files td { padding:11px 10px; border-bottom:1px solid var(--line); vertical-align:top; color:var(--fg2); }
+  table.files td.fn { font-weight:700; color:var(--fg); white-space:nowrap; }
+  table.files td.fn small { display:block; color:var(--faint); font-weight:400; }
+  table.files td.n { text-align:right; white-space:nowrap; }
+  .delta .add { color:#5ff0b6; } .delta .del { color:#ff8a96; }
+  .fbadge { font-size:10px; font-weight:700; border-radius:5px; padding:2px 7px; }
+  .fbadge.cn { color:var(--amber); border:1px solid var(--amber); }
+  .fbadge.nt { color:var(--blue); border:1px solid var(--blue); }
+  .fbadge.none { color:var(--faint); }
+
+  footer { margin-top:44px; padding-top:18px; border-top:1px solid var(--line2); color:var(--muted); font-size:11px; }
+  footer .row { display:flex; gap:8px; margin-bottom:7px; flex-wrap:wrap; }
+  footer .row .lab { color:var(--faint); min-width:128px; text-transform:uppercase; letter-spacing:0.5px; font-size:10px; }
+  footer .gen { margin-top:14px; color:var(--faint); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- MASTHEAD -->
+  <div class="mast">
+    <div class="brand">
+      <span class="dot"></span>
+      <div><div class="name">splus</div><div class="sub">self-review · dogfood</div></div>
+    </div>
+    <div class="meta">
+      <div><b>splus</b> reviewing <b>splus</b> — entire codebase, <code>mode: all</code></div>
+      <div>77 files · +13,251 · SCIP precise (12 docs)</div>
+      <div>splus-engine v0.6.0 · 2026-06-04</div>
+    </div>
+  </div>
+
+  <!-- VERDICT -->
+  <div class="verdict" style="border-left-color:var(--amber);box-shadow:0 0 28px rgba(255,197,61,.06)">
+    <span class="chip warn"><span class="pulse"></span>1 ACTIONABLE</span>
+    <div class="say">Scanned the <b>whole repo as brand-new</b>. 52 raw findings — on senior-reviewer verification <b>one is real</b>: a vulnerable dev-time <code>esbuild</code>. The rest are the security engine flagging <b>its own detector fixtures, benchmark corpus, and CLI logging</b>.</div>
+    <div class="vbreak">
+      <span class="r">●&nbsp;<b>1</b> real</span><span class="i">●&nbsp;<b>1</b> info</span><span class="f">●&nbsp;<b>15</b> self-ref</span><span class="d">●&nbsp;<b>35</b> by-design</span>
+    </div>
+  </div>
+
+  <!-- SUMMARY -->
+  <div class="rule"><span class="rule__label">RAW DETERMINISTIC FLOOR</span></div>
+  <div class="tiles">
+    <div class="tile"><div class="k">77</div><div class="l">Files</div></div>
+    <div class="tile"><div class="k">+13,251</div><div class="l">Added</div></div>
+    <div class="tile has-mf"><div class="k">4</div><div class="l">Must-fix</div></div>
+    <div class="tile has-cn"><div class="k">15</div><div class="l">Concern</div></div>
+    <div class="tile has-nt"><div class="k">33</div><div class="l">Nit</div></div>
+    <div class="tile"><div class="k">0</div><div class="l">Suppressed</div></div>
+  </div>
+  <div class="prose">
+    <p>Ran with <code>mode: all</code> — every committed file treated as newly written, across the Rust engine
+       (<code>crates/splus-engine</code>) and the TypeScript packages. SCIP built a <span class="hl">compiler-grade</span>
+       index for the 12 TS documents, so cross-file blast radius there resolves at ~97% (the Rust crates stay on the name heuristic).</p>
+    <p>The headline: <strong>a security scanner pointed at itself mostly finds itself.</strong> 15 findings are the
+       detectors matching their own rule strings, <code>#[test]</code> fixtures, and the benchmark's planted-vuln corpus;
+       35 more are by-design (CLI logging in bench/scripts, the installer's documented <code>curl | sh</code>). Each was
+       verified by re-reading the cited line.</p>
+    <p>That leaves <strong>one genuinely actionable</strong> finding — a vulnerable dev-time <code>esbuild</code> — and one
+       informational high-impact export (<code>createOpenAIClient</code>, SCIP-confirmed). Both are below.
+       <span class="hl">Click any module</span> in the map to drill into its functions.</p>
+  </div>
+
+  <!-- HERO GRAPH -->
+  <div class="rule"><span class="rule__label">WHERE THE FINDINGS LAND</span></div>
+  <div class="canvas hero" id="heroWrap">
+    <svg class="graph" id="hero" viewBox="0 0 840 252" role="img" aria-label="System impact map">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="context-stroke"></path>
+        </marker>
+      </defs>
+      <g id="hero-edges"></g><g id="hero-elabels"></g><g id="hero-nodes"></g>
+    </svg>
+  </div>
+  <div class="legend">
+    <span><i style="border-color:var(--red)"></i> real / actionable</span>
+    <span><i style="border-color:var(--purple);box-shadow:0 0 6px rgba(185,139,255,.5)"></i> self-referential (own fixtures)</span>
+    <span><i style="border-color:var(--line2)"></i> by-design</span>
+    <span style="color:var(--faint)">hover to trace · click a module to drill into it</span>
+  </div>
+
+  <!-- DRILL-DOWN: file internals (symbol-level) -->
+  <div class="drill" id="drill" hidden>
+    <div class="drill-head">
+      <span class="ttl"><b id="drillFile">—</b> <span class="c">· internals</span></span>
+      <button class="drill-clear" id="drillClear">clear focus ✕</button>
+    </div>
+    <div class="canvas"><svg class="graph" id="drillSvg" viewBox="0 0 840 168" role="img" aria-label="File internals"></svg></div>
+    <div class="drill-note" id="drillNote"></div>
+  </div>
+
+  <!-- FINDINGS -->
+  <div class="rule"><span class="rule__label">FINDINGS · VERIFIED</span> <span class="n">52 → 4 groups</span></div>
+  <div id="focusHint"><span>Focused on <b id="focusFile">—</b> — <span id="focusCount"></span></span><button class="all" id="showAll">show all findings</button></div>
+  <div id="cleanNote"></div>
+
+  <!-- 1 · REAL -->
+  <article class="find f-real" data-file="pnpm-lock.yaml" id="f-esbuild">
+    <header>
+      <span class="sev high"><span class="d"></span>HIGH</span>
+      <div class="h">
+        <div class="title">Vulnerable dependency: <code>esbuild</code> dev server</div>
+        <div class="loc"><a href="#" title="pnpm-lock.yaml">pnpm-lock.yaml</a><span class="lines">esbuild@0.24.2</span></div>
+      </div>
+      <span class="vchip real">real</span>
+    </header>
+    <div class="body">
+      <p class="msg"><code>GHSA-67mh-4wv8-2f99</code>: esbuild ≤0.24.2 lets any website send requests to the local dev
+        server and read the response. It's a <em>transitive dev</em> dependency (build tooling), so the blast radius is
+        dev-time only — the shipped product is the Rust engine plus a bundled MCP, neither of which runs <code>esbuild</code>.</p>
+      <div class="meta">
+        <span class="cat">supplychain</span><span class="sep">·</span>
+        <span class="rid">supplychain.GHSA-67mh-4wv8-2f99</span><span class="sep">·</span>
+        <span class="src">via osv-scanner</span>
+        <span class="conf">confidence <b>85%</b><span class="bar"><i style="width:85%"></i></span></span>
+      </div>
+      <div class="affects">
+        <div class="cap">affects · relationships <span class="tag">blast radius: dev-only</span></div>
+        <div class="canvas"><svg class="graph" id="aff-esbuild" viewBox="0 0 840 150"></svg></div>
+        <div class="note">The shipped artifact is unaffected. <b>Fix:</b> pin <code>esbuild ≥0.25.0</code> via a <code>pnpm.overrides</code> entry and re-lock.</div>
+      </div>
+      <div class="code">
+        <div class="cap"><span>Suggested fix — package.json</span><span>json</span></div>
+        <pre><span class="ln"><span class="g">  </span>"pnpm": {</span><span class="ln add">+   "overrides": { "esbuild": ">=0.25.0" }</span><span class="ln"><span class="g">  </span>}</span></pre>
+      </div>
+    </div>
+  </article>
+
+  <!-- 2 · INFORMATIONAL -->
+  <article class="find f-low" data-file="packages/triage" id="f-openai">
+    <header>
+      <span class="sev low"><span class="d"></span>LOW</span>
+      <div class="h">
+        <div class="title">High-impact export: <code>createOpenAIClient</code></div>
+        <div class="loc"><a href="#" title="packages/triage/src/openai.ts">packages/triage/src/openai.ts</a><span class="lines">L44</span></div>
+      </div>
+      <span class="vchip info">informational</span>
+    </header>
+    <div class="body">
+      <p class="msg">Changing the exported <code>createOpenAIClient</code> touches <b>6 reference sites across 3 files</b>,
+        resolved <span class="hl">compiler-grade</span> via SCIP (0.97). Not a defect — an impact heads-up: verify the call
+        sites and their tests before changing its signature. The only production caller is <code>provider.ts:25</code>.</p>
+      <div class="meta">
+        <span class="cat">impact</span><span class="sep">·</span>
+        <span class="rid">impact.blast-radius</span><span class="sep">·</span>
+        <span class="src">via scip (compiler-grade)</span>
+        <span class="conf">confidence <b>97%</b><span class="bar"><i style="width:97%"></i></span></span>
+      </div>
+      <div class="affects">
+        <div class="cap">affects · relationships <span class="tag">blast radius: 3 files · SCIP</span></div>
+        <div class="canvas"><svg class="graph" id="aff-openai" viewBox="0 0 840 150"></svg></div>
+        <div class="note">Real cross-file edges, not heuristic. <code>index.ts</code> re-exports it on the public surface — a signature change is an API change.</div>
+      </div>
+    </div>
+  </article>
+
+  <!-- 3 · SELF-REFERENTIAL -->
+  <article class="find f-fixture" data-file="collectors/heuristics.rs" id="f-selfref">
+    <header>
+      <span class="sev medium"><span class="d"></span>15 RAW</span>
+      <div class="h">
+        <div class="title">Self-referential — the detector flagged its own patterns</div>
+        <div class="loc">collectors/heuristics.rs · collectors/secrets.rs · bench/run.mjs</div>
+      </div>
+      <span class="vchip fixture">fixture</span>
+    </header>
+    <div class="body">
+      <p class="msg">Reviewing the engine in <code>mode: all</code> means it scans the very files that <em>define</em> the
+        rules. So the AWS key in <code>detects_aws_key()</code>, the <code>verify=False</code> /
+        <code>danger_accept_invalid_certs(true)</code> strings in the rule messages and <code>#[test]</code> assertions,
+        and the planted-vuln <code>CASES</code> corpus in <code>bench/run.mjs</code> all match the patterns they exist to test.</p>
+      <div class="meta">
+        <span class="cat">security</span><span class="sep">·</span>
+        <span class="rid">secret.* · security.tls-* · security.eval-usage · …</span><span class="sep">·</span>
+        <span class="src">verified by re-reading each cited line</span>
+      </div>
+      <div class="affects">
+        <div class="cap">why it fires <span class="tag" style="color:var(--purple);border-color:var(--purple)">self-referential loop</span></div>
+        <div class="canvas"><svg class="graph" id="aff-selfref" viewBox="0 0 840 150"></svg></div>
+        <div class="note">Expected behaviour, not vulnerabilities. In a normal diff review these never appear — only
+          <code>mode: all</code> re-scans the rule sources. Teach the repo with <code>dismiss &lt;id&gt;</code> to suppress them on future runs.</div>
+      </div>
+      <ul class="clset">
+        <li><code>secrets.rs:244</code> — AWS key inside <code>#[test] fn detects_aws_key()</code></li>
+        <li><code>heuristics.rs:284,570,590,605,606</code> — rule message string + <code>#[test]</code> sink assertions</li>
+        <li><code>bench/run.mjs:40–77</code> — the recall benchmark's planted-vuln corpus (<code>MIN_RECALL 0.9</code>)</li>
+      </ul>
+    </div>
+  </article>
+
+  <!-- 4 · BY-DESIGN -->
+  <article class="find f-bydesign" data-file="install.sh" id="f-bydesign">
+    <header>
+      <span class="sev info"><span class="d"></span>35 RAW</span>
+      <div class="h">
+        <div class="title">By-design — CLI logging &amp; the installer's own commands</div>
+        <div class="loc">install.sh · bench/* · scripts/*</div>
+      </div>
+      <span class="vchip bydesign">by-design</span>
+    </header>
+    <div class="body">
+      <p class="msg">The remaining items are intended behaviour. <code>console.*</code> in the bench harness and build
+        scripts <em>is</em> the program's output. The installer's <code>curl … | sh</code> is its documented entry point
+        (header comment) and it verifies a checksum before running; the <code>rm -rf</code> targets are
+        <code>mktemp -d</code> directories, quoted.</p>
+      <div class="meta">
+        <span class="cat">hygiene · correctness · security</span><span class="sep">·</span>
+        <span class="rid">hygiene.debug-console · security.bash-* · hygiene.eslint-disable</span>
+      </div>
+      <ul class="clset">
+        <li><b>30×</b> <code>hygiene.debug-console</code> — bench &amp; build scripts (stdout is the output)</li>
+        <li><b>4×</b> <code>install.sh</code> — <code>curl|sh</code> docs (checksum-verified) + <code>mktemp</code>-guarded <code>rm -rf</code></li>
+        <li><b>1×</b> <code>eslint-disable</code> in <code>openai.test.ts</code> — a scoped test suppression</li>
+      </ul>
+    </div>
+  </article>
+
+  <!-- HOTSPOTS -->
+  <div class="rule"><span class="rule__label">HOTSPOTS</span> <span class="n">77 files · top modules</span></div>
+  <table class="files">
+    <thead><tr><th>Module</th><th>What it is</th><th class="n">Findings</th><th class="n">Verdict</th></tr></thead>
+    <tbody>
+      <tr><td class="fn">pnpm-lock.yaml<small>root</small></td>
+        <td><code>esbuild@0.24.2</code> — GHSA-67mh-4wv8-2f99 (dev-server response read).</td>
+        <td class="n">1</td><td class="n"><span class="vchip real">real</span></td></tr>
+      <tr><td class="fn">packages/triage<small>src/openai.ts</small></td>
+        <td>OpenAI client factory — exported, 6 SCIP sites across 3 files.</td>
+        <td class="n">1</td><td class="n"><span class="vchip info">info</span></td></tr>
+      <tr><td class="fn">collectors/heuristics.rs<small>splus-engine</small></td>
+        <td>15-language security rules + their <code>#[test]</code> assertions.</td>
+        <td class="n">5</td><td class="n"><span class="vchip fixture">fixture</span></td></tr>
+      <tr><td class="fn">collectors/secrets.rs<small>splus-engine</small></td>
+        <td>Secret detector + unit tests (the AWS-key fixture).</td>
+        <td class="n">1</td><td class="n"><span class="vchip fixture">fixture</span></td></tr>
+      <tr><td class="fn">bench/<small>run.mjs · martian/</small></td>
+        <td>Recall benchmark — planted-vuln corpus + CLI logging.</td>
+        <td class="n">≈39</td><td class="n"><span class="vchip fixture">mixed</span></td></tr>
+      <tr><td class="fn">install.sh<small>root</small></td>
+        <td>Installer — documented <code>curl|sh</code> + <code>mktemp</code>-guarded cleanup.</td>
+        <td class="n">4</td><td class="n"><span class="vchip bydesign">by-design</span></td></tr>
+      <tr><td class="fn">crates/splus-engine<small>pipeline · model · render · analysis</small></td>
+        <td>Engine core — collectors → pipeline → ranking → render.</td>
+        <td class="n">0</td><td class="n"><span class="fbadge none">clean</span></td></tr>
+    </tbody>
+  </table>
+
+  <footer>
+    <div class="row"><span class="lab">mode</span><span><code>all</code> — entire committed repo reviewed as if newly written (77 files · +13,251)</span></div>
+    <div class="row"><span class="lab">collectors run</span><span><code>git-graph</code> <code>tree-sitter</code> <code>heuristics (15 langs)</code> <code>secrets (native + gitleaks)</code> <code>osv-scanner</code> <code>scip</code></span></div>
+    <div class="row"><span class="lab">precision</span><span>SCIP precise tier active — <b style="color:var(--cyan)">12 indexed documents</b> (TS) → compiler-grade blast radius. Rust crates stay on the ~60% name heuristic.</span></div>
+    <div class="row"><span class="lab">teach</span><span><code>dismiss &lt;id&gt;</code> the self-referential fixtures so they don't resurface on future <code>mode:all</code> runs.</span></div>
+    <div class="gen">splus reviewing splus · splus-engine v0.6.0 · deterministic floor + senior-reviewer verification · local-only · 2026-06-04</div>
+  </footer>
+</div>
+<!-- hover tooltip — body-level + position:fixed so it never gets clipped by a graph canvas -->
+<div class="gtip" id="gtip"></div>
+
+<script>
+/* ──────────────────────────────────────────────────────────────
+   Reusable graph renderer. Nodes carry { col } for left→right
+   layering; edges curve between columns. Used for the file-level
+   hero map AND the per-finding symbol-level "affects" graphs.
+   ────────────────────────────────────────────────────────────── */
+const SVGNS = "http://www.w3.org/2000/svg";
+const mk = (t,a={}) => { const e=document.createElementNS(SVGNS,t); for(const k in a) e.setAttribute(k,a[k]); return e; };
+
+function renderGraph(svg, data, opt){
+  const W = opt.W, H = opt.H, NW = opt.nodeW, NH = opt.nodeH, gap = opt.vGap, pad = opt.pad;
+  const cols = [...new Set(data.nodes.map(n=>n.col))].sort((a,b)=>a-b);
+  const colX = {};
+  cols.forEach((c,i)=>{ colX[c] = cols.length===1 ? (W-NW)/2 : pad + i*((W-2*pad-NW)/(cols.length-1)); });
+  const pos = {};
+  cols.forEach(c=>{
+    const arr = data.nodes.filter(n=>n.col===c);
+    const total = arr.length*NH + (arr.length-1)*gap, top=(H-total)/2;
+    arr.forEach((n,i)=>{ pos[n.id]={x:colX[c], y:top+i*(NH+gap)}; });
+  });
+
+  if(opt.flow) svg.classList.add(opt.flow===true ? "flow" : opt.flow);
+
+  const gEdges  = mk("g"), gLabels = mk("g"), gNodes = mk("g");
+  // defs (each svg needs its own marker)
+  const defs = mk("defs");
+  const m = mk("marker",{id:svg.id+"-arr",viewBox:"0 0 10 10",refX:"9",refY:"5",markerWidth:"6.5",markerHeight:"6.5",orient:"auto-start-reverse"});
+  m.appendChild(mk("path",{d:"M0,0 L10,5 L0,10 z",fill:"context-stroke"})); defs.appendChild(m);
+  svg.appendChild(defs);
+
+  data.edges.forEach((e,i)=>{
+    const a=pos[e.from], b=pos[e.to];
+    const x1=a.x+NW, y1=a.y+NH/2, x2=b.x, y2=b.y+NH/2;
+    const dx=Math.max(34,(x2-x1)*0.5);
+    const d=`M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;
+    const cls = "edge" + (e.tone?(" tone-"+e.tone):"") + (e.affected?" affected":"");
+    const p = mk("path",{class:cls, d, "marker-end":`url(#${svg.id}-arr)`,
+                         ...(e.dashed?{"stroke-dasharray":"5 4"}:{})});
+    p.dataset.from=e.from; p.dataset.to=e.to;
+    gEdges.appendChild(p);
+    if(opt.edgeLabels && e.label){
+      // bias the label toward the source so labels on edges that diverge
+      // from the same node don't stack on top of each other at the midpoint
+      const t = opt.labelT ?? 0.5;
+      const mx=x1+(x2-x1)*t, my=y1+(y2-y1)*t - 4;
+      const w=e.label.length*4.9+10;
+      const bg=mk("rect",{class:"elabel-bg",x:mx-w/2,y:my-9,width:w,height:13,rx:3});
+      const tx=mk("text",{class:"elabel",x:mx,y:my+1,"text-anchor":"middle"}); tx.textContent=e.label;
+      bg.dataset.from=tx.dataset.from=e.from; bg.dataset.to=tx.dataset.to=e.to;
+      gLabels.appendChild(bg); gLabels.appendChild(tx);
+    }
+  });
+
+  const clickableOf = n => !!opt.onNodeClick && (!opt.clickableIf || opt.clickableIf(n));
+  data.nodes.forEach(n=>{
+    const p=pos[n.id], canClick=clickableOf(n);
+    const g=mk("g",{class:"node"+(n.tone?(" tone-"+n.tone):"")+(n.subject?" subject":"")+(canClick?" clickable":"")});
+    g.dataset.id=n.id;
+    g.appendChild(mk("rect",{x:p.x,y:p.y,width:NW,height:NH,rx:8}));
+    const nm=mk("text",{class:"nm",x:p.x+13,y:p.y+NH*0.42+3,"font-size":opt.nameSize}); nm.textContent=n.label;
+    g.appendChild(nm);
+    if(n.sub){ const sb=mk("text",{class:"sb",x:p.x+13,y:p.y+NH*0.74+3,"font-size":opt.subSize}); sb.textContent=n.sub; g.appendChild(sb); }
+    if(n.badge){
+      const bx=p.x+NW-13, by=p.y+13;
+      g.appendChild(mk("circle",{class:"badge"+(n.badgeKind?" "+n.badgeKind:""),cx:bx,cy:by,r:9}));
+      const bt=mk("text",{class:"badge-t",x:bx,y:by+3.5,"text-anchor":"middle","font-size":"9.5"}); bt.textContent=n.badge;
+      g.appendChild(bt);
+    }
+    if(opt.expandGlyph && canClick){               // disclosure chevron → drill into functions
+      const cx=p.x+NW-13, cy=p.y+NH-12, ex=mk("g",{class:"exp"});
+      ex.appendChild(mk("circle",{cx,cy,r:6,fill:"none"}));
+      ex.appendChild(mk("path",{d:`M${cx-2.6},${cy-1.3} L${cx},${cy+1.8} L${cx+2.6},${cy-1.3}`,fill:"none"}));
+      g.appendChild(ex);
+    }
+    if(canClick) g.addEventListener("click",()=>opt.onNodeClick(n.id));
+    gNodes.appendChild(g);
+  });
+
+  svg.appendChild(gEdges); svg.appendChild(gLabels); svg.appendChild(gNodes);
+
+  if(!opt.interactive) return;
+  const nodeEls=[...gNodes.children], edgeEls=[...gEdges.children], labelEls=[...gLabels.children];
+  const byId=Object.fromEntries(data.nodes.map(n=>[n.id,n]));
+  const tip=opt.tip;
+  let sticky=null;
+  function light(id){
+    svg.classList.add("focus");
+    const conn=new Set([id]);
+    edgeEls.forEach(ed=>{ const on=ed.dataset.from===id||ed.dataset.to===id; ed.classList.toggle("lit",on); if(on){conn.add(ed.dataset.from);conn.add(ed.dataset.to);} });
+    labelEls.forEach(l=>l.classList.toggle("lit", l.dataset.from===id||l.dataset.to===id));
+    nodeEls.forEach(ne=>ne.classList.toggle("lit", conn.has(ne.dataset.id)));
+  }
+  function clear(){ svg.classList.remove("focus"); edgeEls.forEach(e=>e.classList.remove("lit")); labelEls.forEach(l=>l.classList.remove("lit")); nodeEls.forEach(n=>n.classList.remove("lit")); if(tip) tip.style.opacity=0; }
+  function restore(){ if(sticky) light(sticky); else clear(); }       // mouseleave returns to the focused file
+  function setSticky(id){ sticky=id; nodeEls.forEach(ne=>ne.classList.toggle("sticky", !!id && ne.dataset.id===id)); if(id) light(id); else clear(); }
+  nodeEls.forEach(ne=>{
+    const id=ne.dataset.id, n=byId[id], p=pos[id];
+    ne.addEventListener("mouseenter",()=>{
+      light(id);
+      if(tip && n.tip){
+        tip.innerHTML=n.tip;
+        tip.style.opacity=1;                              // show first so offsetWidth/Height are real
+        const r=svg.getBoundingClientRect();
+        const cx=r.left+(p.x+NW/2)/W*r.width;             // node center, viewport coords
+        const topY=r.top+(p.y)/H*r.height;                // node top edge, viewport coords
+        const botY=r.top+(p.y+NH)/H*r.height;             // node bottom edge
+        const tw=tip.offsetWidth, th=tip.offsetHeight;
+        tip.style.left=Math.max(tw/2+10, Math.min(cx, window.innerWidth-tw/2-10))+"px";
+        if(topY - th*1.25 < 8){ tip.classList.add("below"); tip.style.top=botY+"px"; }   // flip below near top
+        else { tip.classList.remove("below"); tip.style.top=topY+"px"; }
+      }
+    });
+    ne.addEventListener("mouseleave",()=>{ if(tip) tip.style.opacity=0; restore(); });
+  });
+  return { light, clear, restore, setSticky };
+}
+
+/* ── HERO: file-level system map ───────────────────────────────── */
+const tip=document.getElementById("gtip");
+const heroApi = renderGraph(document.getElementById("hero"), {
+  // module-level map: inputs → collectors → core → consumer. Hotspots colored by verdict.
+  nodes:[
+    {id:"bench",col:0,tone:"fixture",label:"bench corpus",sub:"planted sinks",
+     tip:`<b>bench/</b><div class="p">run.mjs · martian/</div><div style="margin-top:6px">recall benchmark — planted-vuln corpus</div><div class="p">≈39 findings · all fixtures / CLI logging</div>`},
+    {id:"install.sh",col:0,tone:"bydesign",label:"install.sh",sub:"curl|sh installer",
+     tip:`<b>install.sh</b><div class="p">root · installer</div><div style="margin-top:6px">4 findings — by-design</div><div class="p">checksum-verified · mktemp-guarded rm</div>`},
+    {id:"collectors/heuristics.rs",col:1,tone:"fixture",label:"heuristics.rs",sub:"15-lang rules",badge:"5",badgeKind:"fx",
+     tip:`<b>collectors/heuristics.rs</b><div class="p">splus-engine · 15-language rules</div><div style="margin-top:6px">5 findings — self-referential</div><div class="p">rule strings + #[test] sinks match their own patterns</div>`},
+    {id:"collectors/secrets.rs",col:1,tone:"fixture",label:"secrets.rs",sub:"secret detector",badge:"1",badgeKind:"fx",
+     tip:`<b>collectors/secrets.rs</b><div class="p">splus-engine · secret detector</div><div style="margin-top:6px">1 finding — AWS key inside a unit test</div>`},
+    {id:"collectors/external.rs",col:1,tone:"clean",label:"external.rs",sub:"osv · gitleaks",
+     tip:`<b>collectors/external.rs</b><div class="p">splus-engine · adapter bridge</div><div style="margin-top:6px">shells out to osv-scanner + gitleaks</div><div class="p">surfaced the 1 real finding</div>`},
+    {id:"pipeline.rs",col:2,tone:"clean",label:"pipeline.rs",sub:"aggregates · ranks",
+     tip:`<b>pipeline.rs</b><div class="p">splus-engine · core</div><div style="margin-top:6px">aggregates collectors · learned suppressions · ranks by tier×confidence</div><div class="p">0 findings — clean</div>`},
+    {id:"pnpm-lock.yaml",col:2,tone:"mustfix",label:"pnpm-lock",sub:"esbuild ≤0.24.2",badge:"1",badgeKind:"rl",
+     tip:`<b>pnpm-lock.yaml</b><div class="p">root · lockfile</div><div style="margin-top:6px">esbuild@0.24.2 — GHSA-67mh-4wv8-2f99</div><div class="api">⚠ the one real, actionable finding</div>`},
+    {id:"packages/triage",col:3,tone:"nit",label:"triage",sub:"LLM layer",
+     tip:`<b>packages/triage</b><div class="p">TS · LLM triage layer</div><div style="margin-top:6px">createOpenAIClient — 6 SCIP sites / 3 files</div><div class="p">informational impact, not a defect</div>`},
+  ],
+  edges:[
+    {from:"bench",to:"collectors/heuristics.rs",tone:"fixture",dashed:true,label:"exercises"},
+    {from:"bench",to:"collectors/secrets.rs",tone:"fixture",dashed:true,label:"exercises"},
+    {from:"install.sh",to:"collectors/external.rs",label:"provisions"},
+    {from:"collectors/heuristics.rs",to:"pipeline.rs",label:"emits"},
+    {from:"collectors/secrets.rs",to:"pipeline.rs",label:"emits"},
+    {from:"collectors/external.rs",to:"pipeline.rs",label:"emits"},
+    {from:"collectors/external.rs",to:"pnpm-lock.yaml",tone:"mustfix",affected:true,dashed:true,label:"osv → esbuild"},
+    {from:"pipeline.rs",to:"packages/triage",tone:"nit",label:"→ triage"},
+  ],
+}, {W:840,H:252,nodeW:150,nodeH:48,vGap:26,pad:16,nameSize:"12",subSize:"9",
+    edgeLabels:true,labelT:0.42,interactive:true,flow:true,expandGlyph:true,
+    onNodeClick:(id)=>focusFile(id), tip,wrap:document.getElementById("heroWrap")});
+
+/* ── AFFECTS graphs (statically lit, only the affected edge animates) ── */
+const AFF_OPT = {W:840,H:150,nodeW:158,nodeH:42,vGap:20,pad:14,nameSize:"11",subSize:"8.6",edgeLabels:true,interactive:false,flow:"flow-affected"};
+
+// REAL — esbuild dev-server advisory; blast radius is dev-only
+renderGraph(document.getElementById("aff-esbuild"), {
+  nodes:[
+    {id:"esbuild",col:0,tone:"mustfix",subject:true,label:"esbuild@0.24.2",sub:"GHSA-67mh-4wv8-2f99"},
+    {id:"vite",col:1,tone:"clean",label:"vite / tsup",sub:"dev bundler"},
+    {id:"dev",col:2,tone:"mustfix",label:"dev server",sub:"reads any response"},
+    {id:"ship",col:2,tone:"clean",label:"shipped artifact",sub:"Rust engine — safe"},
+  ],
+  edges:[
+    {from:"esbuild",to:"vite",tone:"mustfix",affected:true,label:"transitive dep"},
+    {from:"vite",to:"dev",tone:"mustfix",affected:true,dashed:true,label:"runs dev server"},
+    {from:"vite",to:"ship",tone:"clean",label:"build only ✓"},
+  ],
+}, AFF_OPT);
+
+// INFORMATIONAL — createOpenAIClient real SCIP blast radius
+renderGraph(document.getElementById("aff-openai"), {
+  nodes:[
+    {id:"factory",col:0,tone:"nit",subject:true,label:"createOpenAIClient()",sub:"openai.ts:44"},
+    {id:"provider",col:1,tone:"clean",label:"provider.ts",sub:"prod caller"},
+    {id:"index",col:1,tone:"clean",label:"index.ts",sub:"re-export (API)"},
+    {id:"test",col:1,tone:"clean",label:"openai.test.ts",sub:"2 sites"},
+  ],
+  edges:[
+    {from:"factory",to:"provider",tone:"nit",affected:true,label:"called by"},
+    {from:"factory",to:"index",tone:"clean",label:"re-exported"},
+    {from:"factory",to:"test",tone:"clean",label:"tested"},
+  ],
+}, AFF_OPT);
+
+// SELF-REFERENTIAL — the detector matching its own patterns
+renderGraph(document.getElementById("aff-selfref"), {
+  nodes:[
+    {id:"corpus",col:0,tone:"fixture",label:"CASES[] + #[test]",sub:"planted sinks"},
+    {id:"rules",col:1,tone:"fixture",subject:true,label:"detector rules",sub:"regex + messages"},
+    {id:"flag",col:2,tone:"fixture",label:"self-flag ×15",sub:"matches own patterns"},
+  ],
+  edges:[
+    {from:"corpus",to:"rules",tone:"fixture",affected:true,label:"exercises"},
+    {from:"rules",to:"flag",tone:"fixture",affected:true,dashed:true,label:"mode:all re-scans"},
+  ],
+}, AFF_OPT);
+
+/* ── MODULE INTERNALS (symbol-level) — drives the drill-down ───── */
+const FILES = {
+  "pnpm-lock.yaml":{ name:"pnpm-lock.yaml",
+    note:"<b>esbuild@0.24.2</b> — GHSA-67mh-4wv8-2f99 (dev server can read responses from any origin). Dev-only build tooling (vite/tsup); not in the shipped artifact. <b>Fix:</b> a <code>pnpm.overrides</code> pin to <code>esbuild ≥0.25.0</code>, then re-lock.",
+    graph:null },
+  "packages/triage":{ name:"packages/triage",
+    note:"<b>createOpenAIClient</b> is exported and re-exported on the package surface. SCIP resolved 6 reference sites across 3 files (0.97). Click it to jump to the finding.",
+    graph:{ nodes:[
+      {id:"factory",col:0,tone:"nit",subject:true,label:"createOpenAIClient",sub:"openai.ts:44 ↗",finding:"f-openai"},
+      {id:"provider",col:1,tone:"clean",label:"provider.ts",sub:"prod caller"},
+      {id:"index",col:1,tone:"clean",label:"index.ts",sub:"re-export"},
+      {id:"test",col:1,tone:"clean",label:"openai.test.ts",sub:"2 sites"},
+    ], edges:[
+      {from:"factory",to:"provider",tone:"nit",affected:true,label:"called by"},
+      {from:"factory",to:"index",tone:"clean",label:"re-exported"},
+      {from:"factory",to:"test",tone:"clean",label:"tested"},
+    ]}},
+  "collectors/heuristics.rs":{ name:"collectors/heuristics.rs",
+    note:"The rule message for <code>rust-tls-insecure</code> literally contains <code>danger_accept_invalid_certs(true)</code>; the <code>#[test]</code> fns assert on <code>verify=False</code> etc. In <code>mode:all</code> the scanner reads its own source — self-referential.",
+    graph:{ nodes:[
+      {id:"rules",col:0,tone:"fixture",subject:true,label:"Rule{} defs",sub:"regex + message"},
+      {id:"tests",col:0,tone:"fixture",label:"#[test] fns",sub:"sink assertions"},
+      {id:"scan",col:1,tone:"clean",label:"mode:all scan",sub:"re-reads source"},
+      {id:"selfflag",col:2,tone:"fixture",label:"self-flag ×5",sub:"284,570,590,605,606 ↗",finding:"f-selfref"},
+    ], edges:[
+      {from:"rules",to:"scan",tone:"fixture",label:"defines"},
+      {from:"tests",to:"scan",tone:"fixture",label:"contains sinks"},
+      {from:"scan",to:"selfflag",tone:"fixture",affected:true,dashed:true,label:"matches own patterns"},
+    ]}},
+  "collectors/secrets.rs":{ name:"collectors/secrets.rs",
+    findingsNote:"<b>1 finding</b> — the AWS-key unit-test fixture (line 244). Grouped under <b>Self-referential</b> below.",
+    note:"Line 244 is a synthetic key inside the detector's own <code>detects_aws_key()</code> test. (The bench file dodges this by splitting <code>\"AKIA\"+…</code> at runtime; the unit test uses a literal.)",
+    graph:{ nodes:[
+      {id:"detector",col:0,tone:"clean",subject:true,label:"Secrets.run()",sub:"AWS / entropy"},
+      {id:"test",col:1,tone:"fixture",label:"detects_aws_key()",sub:"#[test] fixture"},
+      {id:"flag",col:2,tone:"fixture",label:"self-flag ×1",sub:"line 244 ↗",finding:"f-selfref"},
+    ], edges:[
+      {from:"test",to:"detector",tone:"fixture",label:"exercises"},
+      {from:"detector",to:"flag",tone:"fixture",affected:true,dashed:true,label:"AKIA… literal"},
+    ]}},
+  "collectors/external.rs":{ name:"collectors/external.rs",
+    findingsNote:"Surfaced the <b>1 real finding</b> (esbuild) via osv-scanner — see the <b>real</b> card above.",
+    note:"external.rs shells out to the adapters <code>install.sh</code> provisioned. osv-scanner is the collector that found the one actionable issue.",
+    graph:{ nodes:[
+      {id:"osv",col:0,tone:"clean",subject:true,label:"osv-scanner",sub:"dependency CVEs"},
+      {id:"gl",col:0,tone:"clean",label:"gitleaks",sub:"secrets"},
+      {id:"lock",col:1,tone:"clean",label:"pnpm-lock",sub:"esbuild@0.24.2"},
+      {id:"adv",col:2,tone:"mustfix",label:"GHSA-67mh…",sub:"REAL ↗",finding:"f-esbuild"},
+    ], edges:[
+      {from:"osv",to:"lock",label:"scans"},
+      {from:"lock",to:"adv",tone:"mustfix",affected:true,dashed:true,label:"vulnerable"},
+      {from:"gl",to:"lock",tone:"clean",label:"(no secrets)"},
+    ]}},
+  "pipeline.rs":{ name:"pipeline.rs",
+    findingsNote:"<b>No findings</b> — the engine core is clean. It aggregates collector output, applies learned suppressions, and ranks by tier×confidence.",
+    note:"Core orchestrator: collectors → dedup → learned-suppression → tier/confidence ranking → render. Zero findings.",
+    graph:null },
+  "install.sh":{ name:"install.sh",
+    note:"<code>curl|sh</code> appears in the header doc comment; the script verifies a checksum before running. The <code>rm -rf</code> targets are <code>mktemp -d</code> output, quoted. By-design.",
+    graph:null },
+  "bench":{ name:"bench/",
+    findingsNote:"<b>≈39 findings</b> — the planted-vuln corpus + CLI logging. Grouped under <b>Self-referential</b> &amp; <b>By-design</b> below.",
+    note:"<b>bench/run.mjs</b> measures recall (≥90%) with zero benign noise. Every security flag here is an intended fixture; in <code>mode:all</code> the corpus itself trips the live scanner.",
+    graph:{ nodes:[
+      {id:"cases",col:0,tone:"fixture",subject:true,label:"CASES[]",sub:"planted sinks"},
+      {id:"eng",col:1,tone:"clean",label:"engine",sub:"detectors under test"},
+      {id:"tp",col:2,tone:"fixture",label:"true-positives",sub:"MUST flag ↗",finding:"f-selfref"},
+      {id:"benign",col:2,tone:"clean",label:"benign set",sub:"MUST stay silent"},
+    ], edges:[
+      {from:"cases",to:"eng",tone:"fixture",affected:true,label:"feeds"},
+      {from:"eng",to:"tp",tone:"fixture",affected:true,dashed:true,label:"flags"},
+      {from:"eng",to:"benign",tone:"clean",label:"0 noise"},
+    ]}},
+};
+
+/* ── ORCHESTRATION: hero ⇄ drill ⇄ findings ───────────────────── */
+const drill=document.getElementById("drill"), drillSvg=document.getElementById("drillSvg"),
+      drillFileEl=document.getElementById("drillFile"), drillNote=document.getElementById("drillNote"),
+      drillCanvas=drillSvg.parentElement;
+const focusHint=document.getElementById("focusHint"), focusFileEl=document.getElementById("focusFile"),
+      focusCount=document.getElementById("focusCount"), cleanNote=document.getElementById("cleanNote");
+const findCards=[...document.querySelectorAll(".find")];
+let currentFocus=null;
+
+function jumpToFinding(fid){
+  const card=document.getElementById(fid); if(!card) return;
+  card.classList.remove("hidden");
+  card.scrollIntoView({behavior:"smooth",block:"center"});
+  card.classList.add("flash"); setTimeout(()=>card.classList.remove("flash"),1400);
+}
+
+function showDrill(id){
+  const f=FILES[id]; if(!f){ drill.hidden=true; return; }
+  drillFileEl.textContent=f.name;
+  drillNote.innerHTML=f.note;
+  drillSvg.innerHTML="";
+  if(f.graph){
+    drillCanvas.style.display="";
+    renderGraph(drillSvg, f.graph, {W:840,H:168,nodeW:156,nodeH:42,vGap:18,pad:14,
+      nameSize:"11",subSize:"8.6",edgeLabels:true,labelT:0.42,flow:true,
+      clickableIf:(n)=>!!n.finding, onNodeClick:(sid)=>{ const sn=f.graph.nodes.find(x=>x.id===sid); if(sn&&sn.finding) jumpToFinding(sn.finding); }});
+  } else { drillCanvas.style.display="none"; }
+  drill.hidden=false;
+}
+
+function filterFindings(id){
+  const f=FILES[id]||{}; let n=0;
+  findCards.forEach(c=>{ const m=c.dataset.file===id; c.classList.toggle("hidden",!m); if(m)n++; });
+  focusHint.classList.add("on");
+  focusFileEl.textContent=f.name||id;
+  focusCount.textContent = n ? `${n} finding card${n>1?"s":""}` : "summarized below";
+  cleanNote.classList.toggle("on", n===0);
+  if(n===0) cleanNote.innerHTML = f.findingsNote
+    ? f.findingsNote
+    : `<b>✓ Clean.</b> <code>${f.name||id}</code> was reviewed — nothing flagged.`;
+}
+
+function focusFile(id){
+  if(currentFocus===id){ clearFocus(); return; }   // click same node again → unfocus
+  currentFocus=id;
+  heroApi.setSticky(id);
+  showDrill(id);
+  filterFindings(id);
+}
+
+function clearFocus(){
+  currentFocus=null;
+  heroApi.setSticky(null);
+  drill.hidden=true;
+  findCards.forEach(c=>c.classList.remove("hidden"));
+  focusHint.classList.remove("on");
+  cleanNote.classList.remove("on");
+}
+
+document.getElementById("drillClear").addEventListener("click",clearFocus);
+document.getElementById("showAll").addEventListener("click",clearFocus);
+
+// finding card hover → highlight its node in the system map (bi-directional)
+findCards.forEach(card=>{
+  const fid=card.dataset.file;
+  card.addEventListener("mouseenter",()=>heroApi.light(fid));
+  card.addEventListener("mouseleave",()=>heroApi.restore());
+});
+</script>
+</body>
+</html>

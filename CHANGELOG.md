@@ -3,6 +3,28 @@
 All notable changes to Splus. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org) (pre-1.0: minor versions may break).
 
+## [0.8.0] — the review ends in a report
+
+A review used to end as terminal text / JSON. This release adds a **final step to the review flow**:
+a self-contained, offline **HTML report** — the shareable artifact a dev keeps next to the diff.
+
+### Added
+- **`report` MCP tool** — the closing step of every review. Returns a locked, self-contained HTML
+  template (all CSS + JS + the impact graph inline; no CDN, opens offline) plus fill instructions.
+  After the senior-reviewer verification pass, the agent fills it with the verdict + verified
+  findings + the file-level impact graph and writes `splus-report.html`. The agent supplies data
+  only — the design is fixed, so every report looks identical.
+- **Impact graph as the centerpiece** — files are nodes, impact is edges; hover traces the blast
+  radius, click a module to drill into its symbols, and each finding card cross-links to its node.
+  Per-finding "affects" graphs render the blast radius of a single change.
+- The `review` discovery directive now ends by pointing the agent at `report`, so producing the
+  report is the documented last phase of the flow.
+
+### Changed
+- The MCP server bundles the report template into `mcp.cjs` (base64-embedded from
+  `packages/mcp/templates/report.html`, the readable source of truth; regenerate with
+  `node scripts/build-report-template.mjs`), keeping the server a single offline file.
+
 ## [0.6.0] — top-15 language coverage
 
 Deep analysis used to cover only TypeScript/JavaScript/TSX/Python; every other language fell back
