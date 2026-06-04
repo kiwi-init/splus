@@ -5,6 +5,11 @@ this project uses [semantic versioning](https://semver.org) (pre-1.0: minor vers
 
 ## [Unreleased]
 
+## [0.8.1] — splus reviews splus
+
+A patch release of precision and honesty fixes surfaced by running a full
+`review mode:all precise:true` self-review of Splus on Splus.
+
 ### Fixed
 - **Precise tier: exact symbol matching.** `analysis/scip.rs` resolved a changed
   symbol's SCIP descriptor with a substring `contains`, so with the ±1 line-drift
