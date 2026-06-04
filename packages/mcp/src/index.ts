@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 /**
- * @splus/mcp — the Splus MCP server (LOCAL, zero-network).
+ * @splus/mcp — the Splus MCP server (LOCAL-first, no account/token).
  *
  * Runs as a stdio MCP server your coding agent (Claude Code, Codex, OpenCode)
  * connects to over stdio. It runs the deterministic Rust engine on your LOCAL
  * checkout, applies this repo's learned suppressions from
  * `.splus-cache/learnings.json`, and returns findings. No account, no token,
- * nothing leaves your machine.
+ * and your code never leaves your machine. The one exception to "no network" is
+ * the OPT-IN precise tier (`review precise:true` / the `index` tool), which
+ * fetches a SCIP indexer from npm via `npx --yes` on first use — annotated
+ * `openWorldHint: true`. Reviews without it are fully offline.
  *
  * ONE flow, and the agent in the chair is the driver: Splus supplies precise,
  * deterministic findings (each with a provenance anchor + cross-file blast
@@ -285,10 +288,14 @@ server.registerTool(
         .boolean()
         .optional()
         .describe(
-          "Build a SCIP index first (scip-typescript / scip-python) so cross-file blast radius is compiler-grade (~97%) instead of the name heuristic (~60%). Slower (needs the project's deps); skipped if a fresh index already exists. Default false.",
+          "Build a SCIP index first (scip-typescript / scip-python) so cross-file blast radius is compiler-grade (~97%) instead of the name heuristic (~60%). On first run this fetches the indexer via `npx --yes` (a network call); skipped if `.splus-cache/index.scip` already exists (delete it or run the `index` tool to refresh). Slower (needs the project's deps). Default false.",
         ),
     },
-    annotations: { readOnlyHint: true, openWorldHint: false },
+    // `openWorldHint: true` because `precise:true` shells out to `npx --yes
+    // <indexer>`, which can fetch from the npm registry on first run — the review
+    // itself is local, but this path is not closed-world. (No user code leaves the
+    // machine; only the public indexer package is fetched.)
+    annotations: { readOnlyHint: true, openWorldHint: true },
   },
   async ({ root, mode, base, applyLearnings, precise }) => {
     const repo = rootOf(root);
@@ -299,13 +306,22 @@ server.registerTool(
     // Precise blast-radius (opt-in): generate the SCIP index so the engine resolves
     // cross-file impact compiler-grade. The engine auto-detects the written index.
     const preciseNotes: string[] = [];
-    if (precise && !hasScipIndex(repo)) {
-      const r = buildScipIndex(repo);
-      preciseNotes.push(
-        r.status === "indexed"
-          ? "Precise blast radius: SCIP index built — cross-file impact is compiler-grade."
-          : `Precise blast radius requested but unavailable (${r.status}); using the name+import heuristic tier.`,
-      );
+    if (precise) {
+      if (hasScipIndex(repo)) {
+        // An index already exists — reuse it rather than rebuild every review.
+        // Freshness isn't re-verified here, so say so: a stale index (built at an
+        // earlier commit) resolves blast radius against outdated positions.
+        preciseNotes.push(
+          "Precise blast radius: reusing the existing .splus-cache/index.scip — run the `index` tool (or delete the file) to rebuild if it's stale.",
+        );
+      } else {
+        const r = buildScipIndex(repo);
+        preciseNotes.push(
+          r.status === "indexed"
+            ? "Precise blast radius: SCIP index built — cross-file impact is compiler-grade."
+            : `Precise blast radius requested but unavailable (${r.status}); using the name+import heuristic tier.`,
+        );
+      }
     }
 
     let report: Report;
