@@ -3,6 +3,34 @@
 All notable changes to Splus. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org) (pre-1.0: minor versions may break).
 
+## [Unreleased]
+
+### Fixed
+- **Precise tier: exact symbol matching.** `analysis/scip.rs` resolved a changed
+  symbol's SCIP descriptor with a substring `contains`, so with the ±1 line-drift
+  tolerance in `symbol_at`, `parse` could resolve to a neighbouring `parseAll`
+  definition — and that wrong caller set was then surfaced at compiler-grade
+  (`0.97`) confidence by the blast-radius collector. It now matches `name` as a
+  whole identifier token. Adds a regression test.
+- **MCP: engine crashes no longer masquerade as a missing binary.** `runEngine`
+  treated only exit 2 as failure and then `JSON.parse`d stdout, so a Rust panic
+  (exit 101) produced a cryptic "Unexpected end of JSON input" — which the
+  `review` handler reported as "ensure splus-engine is installed", discarding the
+  real error on stderr. It now keys off whether stdout is valid JSON and surfaces
+  stderr on failure (preserving the exit-1 `--fail-on` JSON path).
+- **MCP: honest network annotation.** `review` was annotated `openWorldHint:
+  false` ("zero-network"), but `precise:true` shells out to `npx --yes <indexer>`,
+  which can fetch from npm on first run. It is now `openWorldHint: true`, the
+  `precise` description discloses the fetch, and the server header carves out the
+  opt-in precise / `index` tier as the one network path (your code still never
+  leaves the machine).
+- **MCP: stale precise index is flagged.** `precise:true` reuses an existing
+  `.splus-cache/index.scip` instead of rebuilding; it no longer claims that index
+  is "fresh" — the review now notes when an existing index is reused and how to
+  refresh it.
+- **deps:** bump `esbuild` 0.24.2 → 0.25.12 to clear GHSA-67mh-4wv8-2f99 (dev-server
+  SSRF; build-time-only devDependency, not runtime-reachable).
+
 ## [0.8.0] — the review ends in a report
 
 A review used to end as terminal text / JSON. This release adds a **final step to the review flow**:

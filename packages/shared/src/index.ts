@@ -163,11 +163,21 @@ export async function runEngine(opts: RunOptions): Promise<Report> {
     "json",
     ...modeArgs(opts.mode),
   ];
-  const { stdout, code } = await exec(bin, args);
-  if (code === 2) {
-    throw new Error(`splus-engine failed (exit 2):\n${stdout}`);
+  const { stdout, stderr, code } = await exec(bin, args);
+  // The engine prints a JSON report on success (exit 0) and on the --fail-on
+  // path (exit 1); a handled error exits 2 and a panic exits 101 — both write the
+  // reason to stderr and nothing parseable to stdout. Key off "is there JSON?"
+  // rather than only exit 2, so a crash surfaces its real cause instead of a
+  // cryptic "Unexpected end of JSON input" (which the MCP layer otherwise
+  // misreports as a missing binary), and stderr is never silently discarded.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new Error(
+      `splus-engine failed (exit ${code}): ${stderr.trim() || stdout.slice(0, 200) || "no output"}`,
+    );
   }
-  const parsed: unknown = JSON.parse(stdout);
   return Report.parse(parsed);
 }
 

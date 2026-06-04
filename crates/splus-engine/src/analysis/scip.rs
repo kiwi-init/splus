@@ -146,8 +146,16 @@ impl ScipGraph {
 }
 
 /// SCIP descriptors embed the name as a token (e.g. `… getUser().` or `… PORT.`).
+/// Match `name` as a whole descriptor token, NOT a substring: with the ±1 line
+/// drift in `symbol_at`, a raw `contains` lets `parse` resolve to a `parseAll`
+/// definition on a neighbouring line — and that wrong caller set is then surfaced
+/// at compiler-grade (0.97) confidence by the blast-radius collector. Splitting on
+/// identifier boundaries (alphanumerics + `_`/`$`, covering JS/TS/Rust/… ids) keeps
+/// the match exact.
 fn symbol_has_name(symbol: &str, name: &str) -> bool {
-    symbol.contains(name)
+    symbol
+        .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+        .any(|tok| tok == name)
 }
 
 fn is_api(path: &str) -> bool {
@@ -210,6 +218,30 @@ mod tests {
 
         // A symbol not in the index → None (caller falls back to heuristic).
         assert!(graph.resolve("src/utils/auth.ts", 1, "doesNotExist").is_none());
+    }
+
+    #[test]
+    fn symbol_match_is_token_boundary_not_substring() {
+        // Two symbols defined at the same line; `parseAll` is listed first so a
+        // substring `contains("parse")` would wrongly return it. The token match
+        // must resolve `parse` to the `parse` symbol, never `parseAll`.
+        let sym_all = "scip x . `m.ts`/parseAll().";
+        let sym = "scip x . `m.ts`/parse().";
+        let index = PbIndex {
+            documents: vec![PbDocument {
+                relative_path: "src/m.ts".into(),
+                language: "TypeScript".into(),
+                occurrences: vec![occ(0, sym_all, true), occ(0, sym, true)], // both at line 0 → 1
+            }],
+        };
+        let graph = ScipGraph::from_index(index);
+        assert_eq!(
+            graph.symbol_at("src/m.ts", 1, "parse").as_deref(),
+            Some(sym),
+            "`parse` must not resolve to the `parseAll` definition"
+        );
+        // and `parseAll` still resolves to itself
+        assert_eq!(graph.symbol_at("src/m.ts", 1, "parseAll").as_deref(), Some(sym_all));
     }
 
     #[test]
