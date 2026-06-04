@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>splus · review report — g-cloud #25579732</title>
+<style>
+  /* ──────────────────────────────────────────────────────────────
+     PALETTE — black on white. Color is reserved for accents only.
+     ────────────────────────────────────────────────────────────── */
+  :root {
+    --bg:        #ffffff;
+    --fg:        #111111;
+    --fg-soft:   #3a3a3a;
+    --muted:     #767676;
+    --faint:     #a3a3a3;
+    --line:      #e6e6e6;   /* hairline */
+    --line-2:    #d2d2d2;
+    --ink:       #111111;   /* strong rules */
+    --panel:     #fafafa;
+
+    /* accents — used sparingly */
+    --critical:  #d12f2a;
+    --high:      #e3640f;
+    --medium:    #c08a02;
+    --low:       #2f6fdb;
+    --info:      #8a8a8a;
+    --good:      #198f55;
+
+    --add-bg:    rgba(25,143,85,0.09);
+    --add-fg:    #166b41;
+    --del-bg:    rgba(209,47,42,0.08);
+    --del-fg:    #a82a26;
+
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", "Cascadia Code", monospace;
+    --radius: 7px;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.55;
+    letter-spacing: -0.1px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 40px 28px 96px; }
+
+  a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--line-2); }
+  a:hover { border-color: var(--ink); }
+
+  /* ── Masthead ───────────────────────────────────────────────── */
+  .mast { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand .dot { width:9px; height:9px; border-radius:50%; background:var(--ink); display:inline-block; }
+  .brand .name { font-weight:700; font-size:15px; letter-spacing:0.5px; }
+  .brand .sub { color:var(--muted); }
+  .mast .meta { text-align:right; color:var(--muted); font-size:12px; line-height:1.7; }
+  .mast .meta b { color:var(--fg); font-weight:600; }
+
+  /* ── Verdict bar ────────────────────────────────────────────── */
+  .verdict {
+    margin-top:22px;
+    border:1px solid var(--line);
+    border-left:3px solid var(--good);
+    border-radius:var(--radius);
+    padding:16px 18px;
+    display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+  }
+  .chip {
+    display:inline-flex; align-items:center; gap:7px;
+    font-weight:700; font-size:12px; letter-spacing:0.6px;
+    padding:5px 11px; border-radius:999px; border:1px solid currentColor;
+  }
+  .chip.good { color:var(--good); }
+  .chip .pulse { width:7px; height:7px; border-radius:50%; background:currentColor; }
+  .verdict .say { color:var(--fg-soft); flex:1 1 240px; }
+  .verdict .say b { font-weight:600; }
+  .conf { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:12px; white-space:nowrap; }
+  .conf .seg { display:flex; gap:3px; }
+  .conf .seg i { width:14px; height:9px; border-radius:2px; background:var(--line-2); display:inline-block; }
+  .conf .seg i.on { background:var(--good); }
+
+  /* ── Section rules (ASCII vibe) ─────────────────────────────── */
+  .rule { display:flex; align-items:center; gap:12px; margin:38px 0 18px; }
+  .rule__label { font-size:11px; letter-spacing:1.6px; color:var(--muted); font-weight:700; white-space:nowrap; }
+  .rule::after { content:""; flex:1; height:1px; background:var(--line); }
+  .rule .n { color:var(--faint); font-weight:600; }
+
+  /* ── Stat tiles ─────────────────────────────────────────────── */
+  .tiles { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+  .tile { border:1px solid var(--line); border-radius:var(--radius); padding:13px 13px 12px; }
+  .tile .k { font-size:26px; font-weight:700; line-height:1; letter-spacing:-0.5px; }
+  .tile .l { margin-top:7px; font-size:10.5px; letter-spacing:0.5px; color:var(--muted); text-transform:uppercase; }
+  .tile.accent-mustfix .k { color: var(--fg); }
+  .tile.accent-mustfix.has .k { color: var(--critical); }
+  .tile.accent-concern.has .k { color: var(--medium); }
+  .tile.accent-nit.has .k { color: var(--low); }
+  .tile.accent-nit.has .k.gray { color: var(--info); }
+  @media (max-width:720px){ .tiles { grid-template-columns:repeat(3,1fr); } }
+
+  /* ── Summary prose ──────────────────────────────────────────── */
+  .prose { border:1px solid var(--line); border-radius:var(--radius); padding:18px 20px; background:var(--panel); }
+  .prose p { margin:0 0 11px; color:var(--fg-soft); }
+  .prose p:last-child { margin-bottom:0; }
+  .prose strong { color:var(--fg); font-weight:700; }
+  .prose code { background:#fff; border:1px solid var(--line); border-radius:4px; padding:1px 5px; font-size:12px; }
+
+  /* ── Impact graph ───────────────────────────────────────────── */
+  .graph-wrap { position:relative; border:1px solid var(--line); border-radius:var(--radius); padding:8px; background:#fff; }
+  svg.graph { width:100%; height:auto; display:block; }
+  .graph .edge { fill:none; stroke:var(--line-2); stroke-width:1.4; }
+  .graph .edge-hit { fill:none; stroke:transparent; stroke-width:14; cursor:default; }
+  svg.graph.focus .edge { opacity:0.12; }
+  svg.graph.focus .edge.lit { opacity:1; stroke:var(--low); stroke-width:2; }
+  .graph .node rect { fill:#fff; stroke:var(--ink); stroke-width:1.3; }
+  .graph .node .basename { font-weight:700; font-size:12.5px; fill:var(--fg); }
+  .graph .node .note { font-size:9.5px; fill:var(--muted); }
+  .graph .node.hub rect { stroke-width:2; }
+  .graph .node .badge { fill:var(--medium); }
+  .graph .node .badge.nit { fill:var(--info); }
+  .graph .node .badge.mf { fill:var(--critical); }
+  .graph .node .badge-t { fill:#fff; font-size:10px; font-weight:700; }
+  svg.graph.focus .node { opacity:0.32; }
+  svg.graph.focus .node.lit { opacity:1; }
+  .graph .node { cursor:default; }
+  .graph .arrow { fill:var(--line-2); }
+  .graph .arrow.lit { fill:var(--low); }
+  .legend { display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; padding:0 4px; color:var(--muted); font-size:11px; }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .legend .sw { width:18px; height:0; border-top:2px solid var(--line-2); }
+  .legend .sw.hub { width:11px; height:11px; border:2px solid var(--ink); border-top:none; border-radius:2px; }
+  .legend .sw.cn { width:11px; height:11px; border:none; border-radius:50%; background:var(--medium); }
+  .legend .sw.nt { width:11px; height:11px; border:none; border-radius:50%; background:var(--info); }
+
+  .gtip {
+    position:absolute; pointer-events:none; z-index:5; opacity:0;
+    transform:translate(-50%,-115%); transition:opacity .08s;
+    background:var(--ink); color:#fff; border-radius:6px; padding:9px 11px;
+    font-size:11px; line-height:1.55; max-width:260px; box-shadow:0 6px 22px rgba(0,0,0,0.18);
+  }
+  .gtip b { color:#fff; }
+  .gtip .p { color:#bdbdbd; }
+  .gtip .api { color:#ff9b66; }
+  .gtip::after { content:""; position:absolute; left:50%; top:100%; transform:translateX(-50%);
+    border:5px solid transparent; border-top-color:var(--ink); }
+
+  /* ── Findings ───────────────────────────────────────────────── */
+  .find { border:1px solid var(--line); border-radius:var(--radius); margin-bottom:14px; overflow:hidden; }
+  .find > header { display:flex; align-items:flex-start; gap:12px; padding:14px 16px; border-bottom:1px solid var(--line); }
+  .sev { display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:700; letter-spacing:0.4px; white-space:nowrap; }
+  .sev .d { width:9px; height:9px; border-radius:50%; }
+  .sev.critical { color:var(--critical); } .sev.critical .d{ background:var(--critical);}
+  .sev.high { color:var(--high); } .sev.high .d{ background:var(--high);}
+  .sev.medium { color:var(--medium); } .sev.medium .d{ background:var(--medium);}
+  .sev.low { color:var(--low); } .sev.low .d{ background:var(--low);}
+  .sev.info { color:var(--info); } .sev.info .d{ background:var(--info);}
+  .find header .h { flex:1; }
+  .find header .title { font-weight:700; font-size:13.5px; }
+  .find header .loc { margin-top:3px; color:var(--muted); font-size:11.5px; }
+  .find header .loc a { border:none; color:var(--low); }
+  .tier { font-size:10px; letter-spacing:0.5px; text-transform:uppercase; color:var(--muted);
+          border:1px solid var(--line-2); border-radius:4px; padding:2px 6px; white-space:nowrap; }
+  .find .body { padding:14px 16px; }
+  .find .msg { color:var(--fg-soft); margin:0 0 13px; }
+  .pills { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:13px; }
+  .pill { font-size:10.5px; color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:3px 8px;
+          display:inline-flex; align-items:center; gap:6px; background:var(--panel); }
+  .pill b { color:var(--fg-soft); font-weight:600; }
+  .pill .bar { width:46px; height:5px; border-radius:3px; background:var(--line-2); overflow:hidden; }
+  .pill .bar i { display:block; height:100%; background:var(--low); }
+
+  .code { border:1px solid var(--line); border-radius:6px; overflow:hidden; background:#fff; }
+  .code .cap { font-size:10.5px; letter-spacing:0.5px; text-transform:uppercase; color:var(--muted);
+               padding:7px 12px; border-bottom:1px solid var(--line); background:var(--panel);
+               display:flex; justify-content:space-between; }
+  .code pre { margin:0; padding:10px 0; overflow-x:auto; font-size:12px; line-height:1.6; }
+  .code .ln { display:block; padding:0 14px; white-space:pre; }
+  .code .ln.add { background:var(--add-bg); color:var(--add-fg); }
+  .code .ln.del { background:var(--del-bg); color:var(--del-fg); }
+  .code .ln .g { color:var(--faint); user-select:none; }
+
+  /* ── Files table ────────────────────────────────────────────── */
+  table.files { width:100%; border-collapse:collapse; font-size:12px; }
+  table.files th { text-align:left; font-size:10.5px; letter-spacing:0.6px; text-transform:uppercase;
+                   color:var(--muted); font-weight:700; padding:8px 10px; border-bottom:1px solid var(--line-2); }
+  table.files td { padding:10px; border-bottom:1px solid var(--line); vertical-align:top; color:var(--fg-soft); }
+  table.files td.fn { font-weight:700; color:var(--fg); white-space:nowrap; }
+  table.files td.fn small { display:block; color:var(--faint); font-weight:400; }
+  table.files td.n { text-align:right; white-space:nowrap; }
+  .delta .add { color:var(--add-fg); } .delta .del { color:var(--del-fg); }
+  .fbadge { font-size:10px; font-weight:700; border-radius:4px; padding:2px 6px; }
+  .fbadge.cn { color:var(--medium); border:1px solid var(--medium); }
+  .fbadge.nt { color:var(--info); border:1px solid var(--line-2); }
+  .fbadge.none { color:var(--faint); }
+
+  /* ── Footer ─────────────────────────────────────────────────── */
+  footer { margin-top:42px; padding-top:18px; border-top:1px solid var(--line); color:var(--muted); font-size:11px; }
+  footer .row { display:flex; gap:8px; margin-bottom:7px; flex-wrap:wrap; }
+  footer .row .lab { color:var(--faint); min-width:128px; text-transform:uppercase; letter-spacing:0.5px; font-size:10px; }
+  footer code { background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:1px 5px; }
+  footer .gen { margin-top:14px; color:var(--faint); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ── MASTHEAD ─────────────────────────────────────────────── -->
+  <div class="mast">
+    <div class="brand">
+      <span class="dot"></span>
+      <div>
+        <div class="name">splus</div>
+        <div class="sub">deterministic review</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div><b>g-cloud</b> · Settings &amp; Configuration + stability pass</div>
+      <div>review #25579732 · 5 commits · 16b83fc</div>
+      <div>splus-engine v0.5.1 · 2026-06-04</div>
+    </div>
+  </div>
+
+  <!-- ── VERDICT ──────────────────────────────────────────────── -->
+  <div class="verdict">
+    <span class="chip good"><span class="pulse"></span>SAFE TO MERGE</span>
+    <div class="say">No <b>must-fix</b> findings. 2 advisory items — both local to <code style="font-size:12px">LogsView.tsx</code> and non-blocking.</div>
+    <div class="conf">
+      merge confidence
+      <span class="seg"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>
+      5/5
+    </div>
+  </div>
+
+  <!-- ── SUMMARY STATS ────────────────────────────────────────── -->
+  <div class="rule"><span class="rule__label">SUMMARY</span></div>
+  <div class="tiles">
+    <div class="tile"><div class="k">6</div><div class="l">Files</div></div>
+    <div class="tile"><div class="k">+438</div><div class="l">Added</div></div>
+    <div class="tile accent-mustfix"><div class="k">0</div><div class="l">Must-fix</div></div>
+    <div class="tile accent-concern has"><div class="k">1</div><div class="l">Concern</div></div>
+    <div class="tile accent-nit has"><div class="k gray">1</div><div class="l">Nit</div></div>
+    <div class="tile"><div class="k">0</div><div class="l">Suppressed</div></div>
+  </div>
+
+  <div style="height:18px"></div>
+  <div class="prose">
+    <p>Adds a <strong>Settings &amp; Configuration</strong> command, time-range filtering for logs, an
+       <strong>Open Logs in IDE</strong> action, and a broad stability pass: shell-injection prevention,
+       cache eviction, exec timeouts, safe JSON parsing, and friendlier errors.</p>
+    <p>The security-relevant change is the <code>exec</code> → <code>execFile</code> migration in
+       <code>gcloud.ts</code>, which removes shell-metacharacter injection at the execution layer. That file is
+       the <strong>blast-radius hub</strong> below — its callers and the new configurations service all route through it.</p>
+    <p>Remaining findings are advisory (P2-equivalent): a temp-file leak on the IDE-export error path, and a
+       <code>react-hooks/exhaustive-deps</code> warning. Neither risks data loss or runtime correctness.</p>
+  </div>
+
+  <!-- ── IMPACT GRAPH ─────────────────────────────────────────── -->
+  <div class="rule"><span class="rule__label">IMPACT · RELATIONSHIPS</span></div>
+  <div class="graph-wrap" id="graphWrap">
+    <svg class="graph" id="graph" viewBox="0 0 820 240" role="img" aria-label="Change impact graph">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path class="arrow" d="M0,0 L10,5 L0,10 z"></path>
+        </marker>
+      </defs>
+      <g id="edges"></g>
+      <g id="nodes"></g>
+    </svg>
+    <div class="gtip" id="gtip"></div>
+  </div>
+  <div class="legend">
+    <span><span class="sw hub"></span> changed file</span>
+    <span><span class="sw"></span> impact / dependency edge</span>
+    <span><span class="sw cn"></span> has concern</span>
+    <span><span class="sw nt"></span> has nit</span>
+    <span style="color:var(--faint)">hover a node to trace its blast radius</span>
+  </div>
+
+  <!-- ── FINDINGS ─────────────────────────────────────────────── -->
+  <div class="rule"><span class="rule__label">FINDINGS</span> <span class="n">2</span></div>
+
+  <!-- finding 1 -->
+  <article class="find">
+    <header>
+      <span class="sev medium"><span class="d"></span>MEDIUM</span>
+      <div class="h">
+        <div class="title">Temp log file leaks when <code>open()</code> throws</div>
+        <div class="loc"><a href="#">extensions/g-cloud/src/services/logs-service/LogsView.tsx</a> : 1431–1454</div>
+      </div>
+      <span class="tier">concern</span>
+    </header>
+    <div class="body">
+      <p class="msg">The IDE-export path writes a log file to <code>tmpdir()</code> and only registers the 60&nbsp;s
+        <code>unlinkSync</code> via <code>setTimeout</code> <em>after</em> <code>await open(filePath, preferredIDE)</code>
+        resolves. If the IDE bundle is missing, <code>open()</code> rejects, cleanup is never scheduled, and the file is
+        left behind permanently. The <code>catch</code> block only shows a toast.</p>
+      <div class="pills">
+        <span class="pill"><b>category</b> correctness</span>
+        <span class="pill"><b>rule</b> resource/temp-file-leak</span>
+        <span class="pill"><b>anchor</b> graph-edge · control-flow</span>
+        <span class="pill"><b>introduced</b> this change</span>
+        <span class="pill">confidence <span class="bar"><i style="width:62%"></i></span> 0.62</span>
+      </div>
+      <div class="code">
+        <div class="cap"><span>Suggested fix — register cleanup before open()</span><span>tsx</span></div>
+        <pre><span class="ln"><span class="g">      </span>const filePath = join(tmpdir(), `gcloud-logs-${projectId}-${Date.now()}.log`);</span><span class="ln"><span class="g">      </span>try {</span><span class="ln"><span class="g">        </span>writeFileSync(filePath, content, "utf-8");</span><span class="ln add">+       // Register cleanup before open() so it fires even on failure</span><span class="ln add">+       setTimeout(() => {</span><span class="ln add">+         try { unlinkSync(filePath); } catch { /* already gone */ }</span><span class="ln add">+       }, 60000);</span><span class="ln"><span class="g">        </span>await open(filePath, preferredIDE);</span><span class="ln del">-       setTimeout(() => { unlinkSync(filePath); }, 60000); // never ran on throw</span><span class="ln"><span class="g">      </span>} catch (err) {</span></pre>
+      </div>
+    </div>
+  </article>
+
+  <!-- finding 2 -->
+  <article class="find">
+    <header>
+      <span class="sev low"><span class="d"></span>LOW</span>
+      <div class="h">
+        <div class="title"><code>fetchLogs</code> missing from <code>useEffect</code> dependency array</div>
+        <div class="loc"><a href="#">extensions/g-cloud/src/services/logs-service/LogsView.tsx</a> : 1371–1373</div>
+      </div>
+      <span class="tier">nit</span>
+    </header>
+    <div class="body">
+      <p class="msg"><code>fetchLogs</code> is a <code>useCallback</code> over <code>gcloudPath</code> and <code>projectId</code>,
+        but the effect that calls it lists only <code>[severity, resourceType, timeRange]</code>. If either dep changed
+        while mounted, the effect would call a stale closure. <code>LogsView</code> is normally remounted on project
+        change, so this is a lint-level <code>react-hooks/exhaustive-deps</code> issue, not a live bug.</p>
+      <div class="pills">
+        <span class="pill"><b>category</b> hygiene</span>
+        <span class="pill"><b>rule</b> react-hooks/exhaustive-deps</span>
+        <span class="pill"><b>anchor</b> sarif · eslint</span>
+        <span class="pill">confidence <span class="bar"><i style="width:55%"></i></span> 0.55</span>
+      </div>
+      <div class="code">
+        <div class="cap"><span>Suggested fix</span><span>tsx</span></div>
+        <pre><span class="ln del">-   }, [severity, resourceType, timeRange]);</span><span class="ln add">+   }, [fetchLogs]);</span></pre>
+      </div>
+    </div>
+  </article>
+
+  <!-- ── FILES ────────────────────────────────────────────────── -->
+  <div class="rule"><span class="rule__label">FILES CHANGED</span> <span class="n">6</span></div>
+  <table class="files">
+    <thead><tr><th>File</th><th>What changed</th><th class="n">Δ</th><th class="n">Findings</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="fn">gcloud.ts<small>src/</small></td>
+        <td><code>exec</code> → <code>execFile</code> (kills shell injection), <code>shellSplit</code> helper, cache eviction loop, <code>clearTimeout</code> in <code>finally</code>, jittered backoff.</td>
+        <td class="n delta"><span class="add">+96</span> <span class="del">−54</span></td>
+        <td class="n"><span class="fbadge none">—</span></td>
+      </tr>
+      <tr>
+        <td class="fn">ConfigurationsService.ts<small>src/services/configurations/</small></td>
+        <td>New <code>execFile</code> service: list / activate / delete / create / revoke. Activation tolerates non-zero exits that still carry the success signal.</td>
+        <td class="n delta"><span class="add">+118</span></td>
+        <td class="n"><span class="fbadge none">—</span></td>
+      </tr>
+      <tr>
+        <td class="fn">ConfigurationsView.tsx<small>src/services/configurations/</small></td>
+        <td>New view listing named gcloud configs with activate / delete / create / duplicate + an Extension Settings section.</td>
+        <td class="n delta"><span class="add">+131</span></td>
+        <td class="n"><span class="fbadge none">—</span></td>
+      </tr>
+      <tr>
+        <td class="fn">LogsView.tsx<small>src/services/logs-service/</small></td>
+        <td>Time-range filter, IDE open w/ temp-file export, module-scoped helpers, client-side search, <code>friendlyErrorMessage</code>.</td>
+        <td class="n delta"><span class="add">+74</span> <span class="del">−22</span></td>
+        <td class="n"><span class="fbadge cn">1 concern</span> <span class="fbadge nt">1 nit</span></td>
+      </tr>
+      <tr>
+        <td class="fn">index.tsx<small>src/</small></td>
+        <td><code>exec</code> → <code>execFile</code>, mount/counts cancellation refs, removed Settings section (moved to new command), fixed stale-state updates on unmounted component.</td>
+        <td class="n delta"><span class="add">+19</span> <span class="del">−31</span></td>
+        <td class="n"><span class="fbadge none">—</span></td>
+      </tr>
+      <tr>
+        <td class="fn">package.json<small>g-cloud/</small></td>
+        <td>New <code>configurations</code> command, <code>defaultRegion</code> + <code>preferredIDE</code> preferences, version → 1.1.0.</td>
+        <td class="n delta"><span class="add">+11</span></td>
+        <td class="n"><span class="fbadge none">—</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ── FOOTER ───────────────────────────────────────────────── -->
+  <footer>
+    <div class="row"><span class="lab">collectors run</span><span><code>git-diff</code> <code>tree-sitter-graph</code> <code>semgrep</code> <code>eslint</code> <code>secret-scan</code> <code>osv</code></span></div>
+    <div class="row"><span class="lab">adapters absent</span><span><code>scip</code> — no compiler index; caller counts are name+import heuristic (~60% confidence)</span></div>
+    <div class="row"><span class="lab">notes</span><span>Enable SCIP for compiler-grade blast radius. Log search moved client-side — only the fetched 100 entries are filtered.</span></div>
+    <div class="gen">generated by splus-engine v0.5.1 · deterministic-first · local-only · 2026-06-04</div>
+  </footer>
+
+</div>
+
+<script>
+/* ──────────────────────────────────────────────────────────────
+   Impact graph — self-contained, no dependencies.
+   Data mirrors Splus's Finding.blast_radius + file graph.
+   Layout: layered left→right, impact flows rightward.
+   ────────────────────────────────────────────────────────────── */
+const DATA = {
+  nodes: [
+    { id:"gcloud.ts", path:"src/gcloud.ts", layer:0, hub:true, badge:0,
+      note:"exec → execFile", directCallers:3, transitive:5,
+      affected:["index.tsx","LogsView.tsx","ConfigurationsService.ts"], api:true },
+    { id:"package.json", path:"g-cloud/package.json", layer:0, badge:0,
+      note:"+configurations cmd", directCallers:2, transitive:2,
+      affected:["ConfigurationsView.tsx","LogsView.tsx"], api:false },
+    { id:"index.tsx", path:"src/index.tsx", layer:1, badge:0,
+      note:"exec → execFile", directCallers:0, transitive:0, affected:[], api:false },
+    { id:"LogsView.tsx", path:"src/services/logs-service/", layer:1, badge:2, badgeKind:"cn",
+      note:"IDE export + filter", directCallers:0, transitive:0, affected:[], api:false },
+    { id:"ConfigurationsService.ts", path:"src/services/configurations/", layer:1, badge:0,
+      note:"new execFile service", directCallers:1, transitive:1, affected:["ConfigurationsView.tsx"], api:false },
+    { id:"ConfigurationsView.tsx", path:"src/services/configurations/", layer:2, badge:0,
+      note:"new CRUD view", directCallers:0, transitive:0, affected:[], api:false },
+  ],
+  edges: [
+    { from:"gcloud.ts", to:"index.tsx", k:"imported by" },
+    { from:"gcloud.ts", to:"LogsView.tsx", k:"imported by" },
+    { from:"gcloud.ts", to:"ConfigurationsService.ts", k:"exec layer" },
+    { from:"ConfigurationsService.ts", to:"ConfigurationsView.tsx", k:"used by" },
+    { from:"package.json", to:"ConfigurationsView.tsx", k:"registers cmd" },
+    { from:"package.json", to:"LogsView.tsx", k:"adds prefs" },
+  ],
+};
+
+const VB_W = 820, VB_H = 240, NW = 176, NH = 48;
+const COLX = [16, 322, 628];
+const layers = [[], [], []];
+DATA.nodes.forEach(n => layers[n.layer].push(n));
+
+function colTop(count){ const total = count*NH + (count-1)*26; return (VB_H - total)/2; }
+const pos = {};
+layers.forEach((arr, li) => {
+  const top = colTop(arr.length);
+  arr.forEach((n, i) => { pos[n.id] = { x: COLX[li], y: top + i*(NH+26) }; });
+});
+
+const SVGNS = "http://www.w3.org/2000/svg";
+const el = (t, a={}) => { const e = document.createElementNS(SVGNS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+
+const gE = document.getElementById("edges");
+const gN = document.getElementById("nodes");
+
+// edges (curved cubic, left→right)
+DATA.edges.forEach((e, i) => {
+  const a = pos[e.from], b = pos[e.to];
+  const x1 = a.x + NW, y1 = a.y + NH/2;
+  const x2 = b.x,      y2 = b.y + NH/2;
+  const dx = Math.max(40, (x2 - x1) * 0.5);
+  const d = `M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;
+  const p = el("path", { class:"edge", d, "marker-end":"url(#arr)" });
+  p.dataset.from = e.from; p.dataset.to = e.to; p.dataset.idx = i;
+  gE.appendChild(p);
+  // wide invisible hit-area not needed for now; edges driven by node hover
+});
+
+// nodes
+DATA.nodes.forEach(n => {
+  const p = pos[n.id];
+  const g = el("g", { class:"node" + (n.hub ? " hub":"") });
+  g.dataset.id = n.id;
+  g.appendChild(el("rect", { x:p.x, y:p.y, width:NW, height:NH, rx:7 }));
+  const base = el("text", { class:"basename", x:p.x+13, y:p.y+20 }); base.textContent = n.id;
+  const note = el("text", { class:"note", x:p.x+13, y:p.y+35 }); note.textContent = n.note;
+  g.appendChild(base); g.appendChild(note);
+  if (n.badge > 0) {
+    const bx = p.x + NW - 13, by = p.y + 13;
+    g.appendChild(el("circle", { class:"badge " + (n.badgeKind||"nit"), cx:bx, cy:by, r:9 }));
+    const bt = el("text", { class:"badge-t", x:bx, y:by+3.5, "text-anchor":"middle" }); bt.textContent = n.badge;
+    g.appendChild(bt);
+  }
+  gN.appendChild(g);
+});
+
+// interactivity
+const svg = document.getElementById("graph");
+const tip = document.getElementById("gtip");
+const wrap = document.getElementById("graphWrap");
+const nodeEls = [...gN.querySelectorAll(".node")];
+const edgeEls = [...gE.querySelectorAll(".edge")];
+
+function lightUp(id){
+  svg.classList.add("focus");
+  const connected = new Set([id]);
+  edgeEls.forEach(ed => {
+    const on = ed.dataset.from === id || ed.dataset.to === id;
+    ed.classList.toggle("lit", on);
+    if (on){ connected.add(ed.dataset.from); connected.add(ed.dataset.to); }
+  });
+  nodeEls.forEach(ne => ne.classList.toggle("lit", connected.has(ne.dataset.id)));
+}
+function clear(){ svg.classList.remove("focus"); edgeEls.forEach(e=>e.classList.remove("lit")); nodeEls.forEach(n=>n.classList.remove("lit")); tip.style.opacity = 0; }
+
+const byId = Object.fromEntries(DATA.nodes.map(n => [n.id, n]));
+nodeEls.forEach(ne => {
+  const id = ne.dataset.id, n = byId[id], p = pos[id];
+  ne.addEventListener("mouseenter", () => {
+    lightUp(id);
+    const aff = n.affected.length ? n.affected.join(", ") : "none";
+    tip.innerHTML =
+      `<b>${n.id}</b><div class="p">${n.path}</div>` +
+      `<div style="margin-top:6px">findings <b>${n.badge}</b> · direct callers <b>${n.directCallers}</b> · transitive <b>${n.transitive}</b></div>` +
+      `<div class="p">affects: ${aff}</div>` +
+      (n.api ? `<div class="api">⚠ crosses API boundary</div>` : ``);
+    // position tip above node center, in screen coords relative to wrap
+    const r = svg.getBoundingClientRect();
+    const sx = r.left + (p.x + NW/2) / VB_W * r.width;
+    const sy = r.top  + (p.y) / VB_H * r.height;
+    const w = wrap.getBoundingClientRect();
+    tip.style.left = (sx - w.left) + "px";
+    tip.style.top  = (sy - w.top) + "px";
+    tip.style.opacity = 1;
+  });
+  ne.addEventListener("mouseleave", clear);
+});
+</script>
+</body>
+</html>
