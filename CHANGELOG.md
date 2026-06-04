@@ -3,6 +3,31 @@
 All notable changes to Splus. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org) (pre-1.0: minor versions may break).
 
+## [0.6.0] — top-15 language coverage
+
+Deep analysis used to cover only TypeScript/JavaScript/TSX/Python; every other language fell back
+to secrets + the three universal heuristics. This release brings grammar-backed analysis to the
+**top 15 languages**.
+
+### Added
+- **12 new deeply-supported languages**: Java, C#, C++, C, Go, Rust, PHP, Ruby, Kotlin, Swift,
+  Scala, and Shell/Bash — each with tree-sitter symbol extraction, cognitive-complexity scoring,
+  and per-language security heuristics. (TypeScript, JavaScript, Python already shipped.)
+- **Per-language security sinks** (precision-first, diff-scoped): Go (`InsecureSkipVerify`, shell
+  `exec.Command`, `fmt.Sprintf` SQL), Rust (`unsafe`, `danger_accept_invalid_certs`), JVM
+  (`Runtime.exec`, `ObjectInputStream`, SQL concat), C# (`Process.Start`, `SqlCommand` concat),
+  C/C++ (`strcpy`/`gets`, `system`/`popen`), PHP (`eval`, `shell_exec`, `unserialize`), Ruby
+  (`eval`, `Marshal.load`, `html_safe`), Bash (`curl | sh`, `eval`, `rm -rf $VAR`, `chmod 777`).
+- **SCIP precise blast-radius for any supported language** — the precise tier was JS/TS + Python
+  only; it now resolves any of the 15 when an `index.scip` is present. The `index` MCP tool
+  auto-runs scip-typescript/scip-python and, for Go/Rust/Java projects, returns the exact indexer
+  command to run.
+
+### Changed
+- The complexity walker and symbol collector are now **data-driven** from a per-language node-kind
+  table (`analysis/langspec.rs`) instead of two hardcoded families, so adding a language is a table
+  entry plus a verifying test. JavaScript and Python output is unchanged.
+
 ## [0.5.1] — precision hardening
 
 A diff-scoped reviewer lives or dies on signal-to-noise. 0.5.0's recall-first discovery could

@@ -3,6 +3,7 @@
 
 pub mod complexity;
 pub mod graph;
+pub mod langspec;
 pub mod scip;
 pub mod symbols;
 pub mod tslang;

@@ -75,9 +75,14 @@ The pipeline (`crates/splus-engine/src/pipeline.rs`):
 3. **Dedup → severity sort → tier** (`must-fix` / `concern` / `nit`).
 
 Every `Finding` carries a provenance **anchor** (`secret` / `metric` / `graph-edge`
-/ `sarif` / `heuristic`) and a stable fingerprint. Deep analysis (symbols, complexity,
-blast radius) covers **TypeScript / JavaScript / TSX / Python**; other languages
-degrade to secrets + heuristics.
+/ `sarif` / `heuristic`) and a stable fingerprint. Deep analysis (tree-sitter symbols,
+cognitive complexity, per-language security heuristics) covers the **top 15 languages** —
+TypeScript, JavaScript (+TSX/JSX), Python, Java, C#, C++, C, Go, Rust, PHP, Ruby, Kotlin,
+Swift, Scala, Shell/Bash. The control-flow + symbol node vocabulary for each is a data table
+in `analysis/langspec.rs`, so the complexity walker and symbol collector are language-agnostic;
+adding a language is "fill in the node names + verifying test". The blast-radius heuristic graph
+is JS/TS-only (it models JS module resolution); the SCIP precise tier resolves any of the 15.
+Languages outside the set degrade to secrets + universal heuristics.
 
 ## The review protocol (the agent)
 

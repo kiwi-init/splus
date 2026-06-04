@@ -1,6 +1,6 @@
 {
   "name": "@splus/mcp",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "type": "module",
   "description": "Splus MCP server (local) — a stdio MCP server your coding agent (Claude Code, Codex, OpenCode) connects to. Runs the deterministic review engine on your local checkout and applies this repo's learned suppressions. No account, no token, nothing leaves your machine.",
   "bin": {

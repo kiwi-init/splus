@@ -11,7 +11,19 @@ pub fn ts_language(lang: Lang) -> Option<Language> {
         Lang::Tsx => Some(tree_sitter_typescript::LANGUAGE_TSX.into()),
         Lang::JavaScript | Lang::Jsx => Some(tree_sitter_javascript::LANGUAGE.into()),
         Lang::Python => Some(tree_sitter_python::LANGUAGE.into()),
-        _ => None,
+        Lang::Go => Some(tree_sitter_go::LANGUAGE.into()),
+        Lang::Rust => Some(tree_sitter_rust::LANGUAGE.into()),
+        Lang::Java => Some(tree_sitter_java::LANGUAGE.into()),
+        Lang::CSharp => Some(tree_sitter_c_sharp::LANGUAGE.into()),
+        Lang::Cpp => Some(tree_sitter_cpp::LANGUAGE.into()),
+        Lang::C => Some(tree_sitter_c::LANGUAGE.into()),
+        Lang::Php => Some(tree_sitter_php::LANGUAGE_PHP.into()),
+        Lang::Ruby => Some(tree_sitter_ruby::LANGUAGE.into()),
+        Lang::Kotlin => Some(tree_sitter_kotlin_ng::LANGUAGE.into()),
+        Lang::Swift => Some(tree_sitter_swift::LANGUAGE.into()),
+        Lang::Scala => Some(tree_sitter_scala::LANGUAGE.into()),
+        Lang::Bash => Some(tree_sitter_bash::LANGUAGE.into()),
+        Lang::Other => None,
     }
 }
 

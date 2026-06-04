@@ -105,7 +105,15 @@ pub enum Lang {
     Go,
     Rust,
     Java,
+    CSharp,
+    Cpp,
+    C,
+    Php,
     Ruby,
+    Kotlin,
+    Swift,
+    Scala,
+    Bash,
     Other,
 }
 
@@ -122,7 +130,16 @@ impl Lang {
             "go" => Lang::Go,
             "rs" => Lang::Rust,
             "java" => Lang::Java,
-            "rb" => Lang::Ruby,
+            "cs" => Lang::CSharp,
+            "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Lang::Cpp,
+            // `.h` is ambiguous (C vs C++); default to C for a diff-scoped reviewer.
+            "c" | "h" => Lang::C,
+            "php" => Lang::Php,
+            "rb" | "rake" | "gemspec" => Lang::Ruby,
+            "kt" | "kts" => Lang::Kotlin,
+            "swift" => Lang::Swift,
+            "scala" | "sc" => Lang::Scala,
+            "sh" | "bash" | "zsh" => Lang::Bash,
             _ => Lang::Other,
         }
     }

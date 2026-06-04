@@ -119,9 +119,19 @@ flow over MCP — that's where the reviewing happens.
 
 Every finding carries an **anchor** (`secret` / `metric` / `graph-edge` / `sarif` /
 `heuristic`) and a stable fingerprint. Cross-file claims always show an explicit **resolution
-confidence** — Splus never presents a name+import heuristic as compiler-grade truth. Deep
-analysis (symbols, complexity, blast radius) covers **TypeScript / JavaScript / TSX / Python**;
-other languages degrade gracefully (secrets + heuristics still apply).
+confidence** — Splus never presents a name+import heuristic as compiler-grade truth.
+
+### Language support
+
+Deep analysis (tree-sitter **symbols + cognitive-complexity + per-language security heuristics**)
+covers the **top 15 languages**:
+
+> TypeScript · JavaScript (+ TSX/JSX) · Python · Java · C# · C++ · C · Go · Rust · PHP · Ruby · Kotlin · Swift · Scala · Shell/Bash
+
+Blast radius is **precise (SCIP, compiler-grade)** for any of these when an `index.scip` exists;
+for the JS/TS family it also falls back to a name+import heuristic graph. Anything outside the 15
+still degrades gracefully — secrets + the universal heuristics (merge markers, TODOs, disabled
+TLS) always apply.
 
 ## Privacy
 

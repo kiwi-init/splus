@@ -39,9 +39,11 @@ impl Collector for BlastRadiusCollector {
 
         for file in ctx.reviewable_files() {
             let lang = Lang::from_path(&file.path);
-            // Heuristic works for JS/TS; SCIP can resolve any indexed language,
-            // so allow Python too when an index is present.
-            let usable = lang.is_jsish() || (lang == Lang::Python && scip.is_some());
+            // The name+import heuristic graph only models JS/TS module resolution;
+            // SCIP resolves any indexed language. So a file is usable when it's
+            // JS/TS (heuristic) or when a SCIP index is loaded (precise, any of the
+            // deeply-supported languages — Go, Rust, Java, …).
+            let usable = lang.is_jsish() || scip.is_some();
             if !usable || !tslang::is_supported(lang) {
                 continue;
             }

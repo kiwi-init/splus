@@ -547,28 +547,66 @@ interface IndexResult {
   message: string;
 }
 
+/**
+ * For languages whose SCIP indexer is NOT npx-runnable (it needs its own
+ * toolchain), return the exact command to run. The engine consumes any
+ * `index.scip` regardless of which indexer produced it.
+ */
+function suggestIndexer(repo: string): string | undefined {
+  const out = ".splus-cache/index.scip";
+  if (existsSync(join(repo, "go.mod")))
+    return `scip-go --output ${out}   (install: go install github.com/sourcegraph/scip-go/cmd/scip-go@latest)`;
+  if (existsSync(join(repo, "Cargo.toml")))
+    return `rust-analyzer scip . --output ${out}   (ships with rust-analyzer)`;
+  if (existsSync(join(repo, "pom.xml")) || existsSync(join(repo, "build.gradle")) || existsSync(join(repo, "build.gradle.kts")))
+    return `scip-java index --output ${out}   (see github.com/sourcegraph/scip-java)`;
+  return undefined;
+}
+
 /** The shared SCIP indexer used by both the `index` tool and `review precise:true`. */
 function buildScipIndex(repo: string): IndexResult {
   mkdirSync(join(repo, ".splus-cache"), { recursive: true });
   const out = join(".splus-cache", "index.scip");
-  let indexer: string;
+
+  // npx-runnable indexers — no toolchain beyond the project's own deps.
+  let indexer: string | undefined;
   if (existsSync(join(repo, "tsconfig.json"))) indexer = "@sourcegraph/scip-typescript";
   else if (existsSync(join(repo, "pyproject.toml")) || existsSync(join(repo, "setup.py")))
     indexer = "@sourcegraph/scip-python";
-  else return { status: "unsupported", message: "No tsconfig.json or pyproject.toml found — nothing to index." };
 
-  const r = spawnSync("npx", ["--yes", indexer, "index", "--output", out], { cwd: repo, encoding: "utf8" });
-  if (r.status === 0) {
+  if (indexer) {
+    const r = spawnSync("npx", ["--yes", indexer, "index", "--output", out], { cwd: repo, encoding: "utf8" });
+    if (r.status === 0) {
+      return {
+        status: "indexed",
+        message: `Indexed with ${indexer} → ${join(repo, out)}. Blast radius is now compiler-grade (SCIP).`,
+      };
+    }
     return {
-      status: "indexed",
-      message: `Indexed with ${indexer} → ${join(repo, out)}. Blast radius is now compiler-grade (SCIP).`,
+      status: "failed",
+      message:
+        `Indexer failed (exit ${r.status ?? "?"}). Ensure the project's deps are installed and it typechecks.\n` +
+        (r.stderr || r.stdout || "").slice(0, 600),
+    };
+  }
+
+  // Other deeply-supported languages (Go, Rust, Java, …): heuristics + complexity
+  // + symbol analysis already run; only the precise blast-radius tier needs an
+  // index, and its indexer isn't npx-runnable. Point the user at the command.
+  const suggestion = suggestIndexer(repo);
+  if (suggestion) {
+    return {
+      status: "unsupported",
+      message:
+        `Deep analysis (heuristics, complexity, symbols) already runs for this language. ` +
+        `For compiler-grade blast radius, build a SCIP index with that language's indexer:\n  ${suggestion}\n` +
+        `\`review\` auto-detects .splus-cache/index.scip (or ./index.scip).`,
     };
   }
   return {
-    status: "failed",
+    status: "unsupported",
     message:
-      `Indexer failed (exit ${r.status ?? "?"}). Ensure the project's deps are installed and it typechecks.\n` +
-      (r.stderr || r.stdout || "").slice(0, 600),
+      "No recognized manifest (tsconfig.json, pyproject.toml, go.mod, Cargo.toml, pom.xml/build.gradle) found — nothing to index.",
   };
 }
 
@@ -583,9 +621,10 @@ server.registerTool(
     title: "Build a SCIP index (precise blast radius)",
     description:
       "Generate a compiler-grade SCIP index so blast-radius resolves precisely (~97% vs the ~60% " +
-      "name heuristic). Runs the appropriate Sourcegraph indexer locally (scip-typescript / " +
-      "scip-python) and writes .splus-cache/index.scip, which `review` auto-detects. Needs the " +
-      "project's deps installed; meant for occasional/CI use, not the hot path.",
+      "name heuristic). Auto-runs the Sourcegraph indexer for TypeScript/Python (scip-typescript / " +
+      "scip-python) and writes .splus-cache/index.scip, which `review` auto-detects. For other " +
+      "languages (Go, Rust, Java, …) it returns the exact indexer command to run — the engine " +
+      "consumes any index.scip. Needs the project's deps installed; meant for occasional/CI use.",
     inputSchema: {
       root: z.string().optional().describe("Repo root (default: server CWD)."),
     },
