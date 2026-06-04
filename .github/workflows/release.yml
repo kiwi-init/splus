@@ -32,7 +32,7 @@ jobs:
           - { name: linux-x64, runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
           - { name: linux-arm64, runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -51,8 +51,8 @@ jobs:
             aarch64-*) file "$bin" | grep -q "arm64"  || { echo "::error::expected an arm64 binary"; exit 1; } ;;
           esac
 
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -70,7 +70,7 @@ jobs:
           cp dist-release/mcp.cjs staging/
           tar -czf "splus-${{ matrix.name }}.tar.gz" -C staging .
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: splus-${{ matrix.name }}
           path: splus-${{ matrix.name }}.tar.gz
@@ -80,7 +80,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
