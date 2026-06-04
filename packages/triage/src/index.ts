@@ -99,6 +99,8 @@ export interface TriagedReport extends Omit<Report, "findings"> {
     verified: number;
     /** Discovered findings dropped by VERIFY (refuted against the code). */
     refuted: number;
+    /** Low/medium discoveries demoted by the per-file signal budget. */
+    budgeted: number;
     inputTokens: number;
     outputTokens: number;
     cachedInputTokens: number;
@@ -315,14 +317,20 @@ export async function triage(report: Report, opts: TriageOptions): Promise<Triag
         continue;
       }
       const v = vmap.get(f.id);
-      // Strict gate: drop only on an explicit refutation. A missing verdict
-      // fails OPEN (keep) so a flaky verify call can't silently swallow findings.
-      if (v && v.verified === false) {
+      // Burden of proof scales with severity. A serious claim (medium+) is kept
+      // unless the skeptic EXPLICITLY refutes it — a flaky verify call must not
+      // swallow a real bug (fail-open). But a LOW/INFO ungrounded finding is
+      // cheap speculation (the "could race / may leak" tail that drowns real
+      // signal): it earns its place only if the skeptic AFFIRMS it (fail-closed
+      // — an explicit false OR a missing verdict both drop it).
+      const lowStakes = severityRank(f.severity) <= 1;
+      const refute = v ? v.verified === false || (lowStakes && v.verified !== true) : lowStakes;
+      if (refute) {
         refuted++;
         suppressed.push({
           ...f,
           verdict: "suppress",
-          rationale: `failed verification: ${v.reason}`,
+          rationale: v ? `failed verification: ${v.reason}` : "unverified low-severity speculation (no verdict)",
         });
       } else {
         verified++;
@@ -332,6 +340,17 @@ export async function triage(report: Report, opts: TriageOptions): Promise<Triag
     kept.length = 0;
     kept.push(...survivors);
   }
+
+  // --- SIGNAL BUDGET: cap ungrounded findings per file ---
+  // A diff-scoped reviewer's credibility comes from signal-to-noise: a human
+  // rarely leaves more than a few comments on a single changed file. Grounded
+  // (engine-anchored) findings are deterministic and always surface; but the
+  // LLM's free-form discoveries can pile up on one complex file (a concurrency
+  // refactor draws a dozen speculative "could race / may leak" notes). We keep
+  // every high/critical ungrounded claim, but budget the low/medium tail per
+  // file to the most-confident few — the rest are demoted (kept visible in the
+  // suppressed list, never deleted) so the posted review stays high-signal.
+  const budgeted = applySignalBudget(kept, suppressed);
 
   kept.sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || b.llmConfidence - a.llmConfidence);
 
@@ -355,6 +374,7 @@ export async function triage(report: Report, opts: TriageOptions): Promise<Triag
       discovered,
       verified,
       refuted,
+      budgeted,
       inputTokens: usage.input,
       outputTokens: usage.output,
       cachedInputTokens: usage.cached,
@@ -605,6 +625,54 @@ function readFileSafe(path: string): string | null {
 
 function severityRank(s: Severity): number {
   return { critical: 4, high: 3, medium: 2, low: 1, info: 0 }[s];
+}
+
+/** Most low/medium UNGROUNDED findings surfaced per changed file. */
+const UNGROUNDED_PER_FILE = 3;
+
+/**
+ * Cap the low/medium UNGROUNDED (LLM-discovered) findings surfaced per file to
+ * the most-confident `UNGROUNDED_PER_FILE`. High/critical ungrounded findings
+ * and ALL grounded (engine-anchored) findings are exempt — those always surface.
+ * Demoted findings move to `suppressed` (visible, auditable) rather than being
+ * deleted. Mutates both arrays in place; returns how many were demoted.
+ *
+ * Why: a recall-first discovery pass piles speculative low/medium notes onto a
+ * single complex file (a concurrency refactor draws a dozen "could race / may
+ * leak" comments). A real reviewer leaves a few; dumping ten erodes trust. This
+ * is a model-independent precision floor — it caps the false-positive blast
+ * radius of one over-firing file without ever touching deterministic findings.
+ */
+function applySignalBudget(kept: TriagedFinding[], suppressed: TriagedFinding[]): number {
+  const perFile = new Map<string, TriagedFinding[]>();
+  for (const f of kept) {
+    if (!f.llmOnly || severityRank(f.severity) >= 3) continue; // exempt grounded + high/critical
+    const arr = perFile.get(f.file) ?? [];
+    arr.push(f);
+    perFile.set(f.file, arr);
+  }
+  const demote = new Set<string>();
+  for (const arr of perFile.values()) {
+    if (arr.length <= UNGROUNDED_PER_FILE) continue;
+    arr.sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || b.llmConfidence - a.llmConfidence);
+    for (const f of arr.slice(UNGROUNDED_PER_FILE)) demote.add(f.id);
+  }
+  if (demote.size === 0) return 0;
+  const survivors: TriagedFinding[] = [];
+  for (const f of kept) {
+    if (demote.has(f.id)) {
+      suppressed.push({
+        ...f,
+        verdict: "suppress",
+        rationale: `below per-file signal budget (only the ${UNGROUNDED_PER_FILE} most-confident low/medium discoveries per file are surfaced)`,
+      });
+    } else {
+      survivors.push(f);
+    }
+  }
+  kept.length = 0;
+  kept.push(...survivors);
+  return demote.size;
 }
 
 function hashTitle(s: string): string {
