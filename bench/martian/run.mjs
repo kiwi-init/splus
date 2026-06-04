@@ -45,6 +45,8 @@ const flag = (name, def) => {
 };
 const LIMIT = Number(flag("--limit", "0")) || Infinity;
 const REPO_FILTER = (flag("--repo", "") || "").split(",").filter(Boolean);
+// --pr <substr,substr> — target specific PRs by URL substring (validation runs).
+const PR_FILTER = (flag("--pr", "") || "").split(",").filter(Boolean);
 const JUDGE = args.includes("--judge");
 const HAS_KEY = !!process.env.ANTHROPIC_API_KEY;
 function hasClaudeCli() {
@@ -201,6 +203,7 @@ async function main() {
   const data = pullBenchmarkData();
   let prs = Object.entries(data);
   if (REPO_FILTER.length) prs = prs.filter(([, v]) => REPO_FILTER.some((r) => (v.source_repo || "").includes(r)));
+  if (PR_FILTER.length) prs = prs.filter(([url]) => PR_FILTER.some((p) => url.includes(p)));
 
   // Resume: replay prior results, skip already-scored PRs. Only fully-scored PRs
   // are persisted, so a rate-limit / kill mid-PR just leaves it for the next run.

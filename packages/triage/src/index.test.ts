@@ -201,6 +201,88 @@ test("VERIFY drops refuted discoveries, keeps confirmed ones, never touches engi
   assert.match(refuted?.rationale ?? "", /failed verification/);
 });
 
+test("signal budget caps low/medium discoveries per file to the most-confident few", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "splus-triage-"));
+  mkdirSync(join(dir, "src"), { recursive: true });
+  writeFileSync(join(dir, "src", "a.ts"), Array.from({ length: 12 }, (_, i) => `line${i + 1}`).join("\n") + "\n");
+
+  // Five low-severity discoveries on ONE file — an over-firing pass. Verify
+  // affirms all (so the cut is the budget, not verification). Only the 3
+  // most-confident may surface; the other 2 are demoted, not deleted.
+  const confidences: Record<number, number> = { 1: 0.9, 2: 0.5, 3: 0.8, 4: 0.6, 5: 0.7 };
+  const client: LLMClient = {
+    messages: {
+      async create(body: Record<string, unknown>) {
+        const b = body as { tool_choice?: { name?: string }; messages?: Array<{ content: string }> };
+        const name = b.tool_choice?.name;
+        if (name === "report_findings") {
+          return { content: [{ type: "tool_use", name: "report_findings", input: { findings:
+            Object.entries(confidences).map(([line, c]) => ({
+              file: "src/a.ts", line: Number(line), title: `nit-${line}`, severity: "low",
+              category: "correctness", rationale: "minor", confidence: c,
+            })),
+          } }] };
+        }
+        if (name === "submit_verifications") {
+          const prompt = b.messages?.[0]?.content ?? "";
+          const verifications: Array<{ id: string; verified: boolean; confidence: number; reason: string }> = [];
+          const re = /--- candidate (\S+) ---/g;
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(prompt))) verifications.push({ id: m[1]!, verified: true, confidence: 0.9, reason: "ok" });
+          return { content: [{ type: "tool_use", name: "submit_verifications", input: { verifications } }] };
+        }
+        return { content: [{ type: "tool_use", name: "submit_triage", input: { verdicts: [] } }] };
+      },
+    },
+  };
+
+  const rep: Report = { ...report, findings: [] };
+  const out = await triage(rep, { root: dir, client, thorough: true, verify: true, changedFiles: ["src/a.ts"] });
+
+  assert.equal(out.llm.discovered, 5, "five discovered");
+  assert.equal(out.llm.budgeted, 2, "two demoted by the per-file budget");
+  assert.equal(out.findings.length, 3, "only the 3 most-confident surface");
+  const surfaced = out.findings.map((f) => f.title).sort();
+  assert.deepEqual(surfaced, ["nit-1", "nit-3", "nit-5"], "kept the top-3 by confidence (0.9/0.8/0.7)");
+  const demoted = out.suppressed.filter((f) => /signal budget/.test(f.rationale ?? ""));
+  assert.equal(demoted.length, 2, "demoted ones are visible in suppressed, not deleted");
+});
+
+test("verify is fail-closed for low-severity speculation, fail-open for medium+", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "splus-triage-"));
+  mkdirSync(join(dir, "src"), { recursive: true });
+  writeFileSync(join(dir, "src", "a.ts"), Array.from({ length: 8 }, (_, i) => `line${i + 1}`).join("\n") + "\n");
+
+  // Verify returns NO verdict for any candidate (empty). A low-severity claim
+  // must be dropped (burden of proof); a medium claim must survive (fail-open).
+  const client: LLMClient = {
+    messages: {
+      async create(body: Record<string, unknown>) {
+        const b = body as { tool_choice?: { name?: string } };
+        const name = b.tool_choice?.name;
+        if (name === "report_findings") {
+          return { content: [{ type: "tool_use", name: "report_findings", input: { findings: [
+            { file: "src/a.ts", line: 2, title: "low-speculation", severity: "low", category: "correctness", rationale: "maybe", confidence: 0.7 },
+            { file: "src/a.ts", line: 4, title: "mid-claim", severity: "medium", category: "correctness", rationale: "likely", confidence: 0.7 },
+          ] } }] };
+        }
+        if (name === "submit_verifications") {
+          return { content: [{ type: "tool_use", name: "submit_verifications", input: { verifications: [] } }] };
+        }
+        return { content: [{ type: "tool_use", name: "submit_triage", input: { verdicts: [] } }] };
+      },
+    },
+  };
+
+  const rep: Report = { ...report, findings: [] };
+  const out = await triage(rep, { root: dir, client, thorough: true, verify: true, changedFiles: ["src/a.ts"] });
+
+  assert.ok(!out.findings.some((f) => f.title === "low-speculation"), "unverified low-severity dropped");
+  assert.ok(out.findings.some((f) => f.title === "mid-claim"), "unverified medium survives (fail-open)");
+  const dropped = out.suppressed.find((f) => f.title === "low-speculation");
+  assert.match(dropped?.rationale ?? "", /unverified low-severity/);
+});
+
 test("throws a clear error when no client and no API key", async () => {
   const saved = process.env.ANTHROPIC_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
