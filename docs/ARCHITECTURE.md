@@ -38,8 +38,8 @@ model than the one you already run — it makes that model disciplined.
 | `crates/splus-engine` | Rust | The deterministic floor. Parses the diff, runs collectors, emits canonical `Finding`s. The source of truth — zero inference. |
 | `packages/shared` | TS | The canonical `Finding` / `Report` model (mirrors the Rust serde model) + `runEngine`, which shells out to the binary and validates its JSON. |
 | `packages/suppression` | TS | Per-repo learned memory: suppress what you `dismiss`, reinforce what you `accept`. The compounding moat. |
-| `packages/triage` | TS | The optional LLM layer (needs a key, or `claude -p`). Runs the multi-pass review headlessly. Strictly downstream of the engine. |
-| `packages/mcp` | TS | The local stdio MCP server your agent connects to. Wires the engine + suppression + triage together and exposes the tools. |
+| `packages/triage` | TS | The **benchmark harness** — runs the review protocol headlessly (key or `claude -p`) so the Martian bench can measure it without a human agent. Strictly downstream of the engine. **Not a usage path** — products only ship the MCP flow. |
+| `packages/mcp` | TS | The local stdio MCP server your agent connects to — **the one and only way to use Splus**. Wires the engine + suppression together and exposes the tools. |
 
 ## The deterministic floor (the engine)
 
@@ -86,17 +86,16 @@ Languages outside the set degrade to secrets + universal heuristics.
 
 ## The review protocol (the agent)
 
-The engine grounds; the agent reviews. Two ways the agent runs the protocol:
-
-- **Interactive** (no key): `review` returns the grounded findings + a **discovery
-  directive** that drives *your* agent through the senior-reviewer pass — and tells
-  it to VERIFY (refute) each finding before posting.
-- **Headless** (`llm: true`, key or `claude -p`): `packages/triage` runs the full
-  pipeline autonomously:
+The engine grounds; the agent reviews. There is **one flow** and the agent in the
+chair is the driver — no API key, no headless alternative to choose between.
+`review` returns the grounded findings + a **discovery directive** that drives
+*your* agent through the protocol below: detect (engine floor + the agent reading
+the diff), attach impact, triage keep/suppress, remediate, and VERIFY (refute)
+each finding before posting.
 
 ```mermaid
 flowchart LR
-    d["<b>detect</b><br/>engine + LLM over the diff<br/><i>maximize recall</i>"]
+    d["<b>detect</b><br/>engine floor + agent over the diff<br/><i>maximize recall</i>"]
     i["<b>impact</b><br/>attach blast radius"]
     t["<b>triage</b><br/>keep / suppress<br/><i>precision</i>"]
     r["<b>remediate</b><br/>concrete fix"]
@@ -108,6 +107,10 @@ flowchart LR
     class d recall
     class t,v precision
 ```
+
+> `packages/triage` runs this exact protocol headlessly so the Martian benchmark
+> can score it without a human agent in the loop. That is a **measurement harness**,
+> not a way to use Splus — the product is the MCP flow above.
 
   - **detect** — engine findings (grounded) + an LLM pass over the **diff** that hunts every plausible bug (recall-first).
   - **impact** — cross-file blast radius attached so the review reasons about consequences.

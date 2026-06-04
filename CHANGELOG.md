@@ -3,6 +3,36 @@
 All notable changes to Splus. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org) (pre-1.0: minor versions may break).
 
+## [0.7.0] — one flow: the agent is the driver
+
+Splus had drifted into looking like it had **two ways to use it** — an agent-driven path and a
+headless `llm: true` path — and its own copy welded the words "full protocol / triage / discovery /
+verify" to the API-key branch. The predictable result: agents asked to do a "complete" review would
+ask the user whether to run "deterministic-only" or whether they had an `ANTHROPIC_API_KEY`, instead
+of just running the review. There is only one way to use Splus — **inside a coding agent, and that
+agent is the driver** — and this release makes the product say exactly that.
+
+### Changed (breaking — MCP tool surface)
+- **`review` is one flow.** Removed the `llm`, `thorough`, and `discovery` parameters and the
+  in-process headless triage branch. `review` always runs the deterministic engine, applies learned
+  suppressions, and returns the grounded floor **plus a directive that drives the agent** — no key,
+  no mode to choose between.
+- **The directive is now the explicit protocol.** It enumerates numbered stages — **TRIAGE →
+  DISCOVER → VERIFY → REPORT → TEACH** — mirroring the headless pipeline, so the agent visibly *runs*
+  the protocol instead of relaying findings.
+
+### Added
+- **MCP server instructions.** The server now ships `instructions` (surfaced to the host agent at
+  connection time, *before* it plans) that state the contract up front: one flow, you are the
+  reviewer, no API key — and explicitly **do not ask** the user about "deterministic-only" or an
+  `ANTHROPIC_API_KEY`. A directive inside a tool *result* arrives too late to stop the pre-call
+  question; server instructions don't.
+
+### Docs
+- README, `docs/TOOLS.md`, and `docs/ARCHITECTURE.md` rewritten to the single agent-driven flow.
+  `packages/triage` is reframed as the **benchmark harness** (it runs the protocol headlessly so the
+  Martian bench can score it without a human agent) — a measurement tool, not a usage path.
+
 ## [0.6.0] — top-15 language coverage
 
 Deep analysis used to cover only TypeScript/JavaScript/TSX/Python; every other language fell back

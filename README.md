@@ -68,7 +68,8 @@ disciplined reviewer:
 - **Learns both ways** — per-repo memory suppresses the noise you `dismiss` *and* reinforces the
   findings you `accept`, so the review fits your team over time.
 
-Nothing leaves your machine; the optional LLM stage talks only to the provider you choose.
+Nothing leaves your machine — there's no cloud step and no API key. The coding agent already in
+your editor is the reviewer.
 
 ## The MCP tools
 
@@ -83,10 +84,10 @@ Your agent connects to the local server and calls these:
 | `learnings` | List what's been learned on this repo.                                       |
 | `index`     | Build a SCIP index locally for the precise (compiler-grade) blast-radius tier. |
 
-With an LLM key (or `claude -p`), `review` runs the full protocol (detect → impact → triage →
-remediate → verify); without one it returns the grounded deterministic floor and hands your agent
-the review. Learnings (both `dismiss` and `accept`) are stored per-repo in
-`.splus-cache/learnings.json` — they stay in your checkout.
+One flow: `review` returns the grounded deterministic floor plus a directive that drives your agent
+through the full protocol (triage → discover → verify) over the changed code. No API key, ever — the
+model already in your editor does the reasoning. Learnings (both `dismiss` and `accept`) are stored
+per-repo in `.splus-cache/learnings.json` — they stay in your checkout.
 
 **Full reference: [`docs/TOOLS.md`](docs/TOOLS.md)** — every tool, parameter, and return shape.
 
@@ -102,9 +103,9 @@ splus-engine review --base origin/main --format sarif    # PR-style → GitHub c
 splus-engine review --staged --fail-on high              # exit non-zero at/above a severity
 ```
 
-The engine emits *only* grounded, diff-scoped findings. Learned suppression
-(`dismiss` / `mute` / `learnings`) and the optional LLM judgment live in the agent
-flow over MCP — that's where the reviewing happens.
+The engine emits *only* grounded, diff-scoped findings. The actual reviewing — the protocol
+(triage → discover → verify) and the learned memory (`dismiss` / `accept` / `mute`) — lives in the
+agent flow over MCP, where the agent in the chair is the reviewer.
 
 ## How it works — the deterministic pipeline (zero inference)
 
@@ -135,9 +136,9 @@ TLS) always apply.
 
 ## Privacy
 
-100% local. No account, no token, no telemetry, no phone-home. The engine runs on your
-checkout; diffs are never uploaded. The optional LLM triage is off unless you set a key, and
-then it talks only to the provider you chose.
+100% local. No account, no token, no API key, no telemetry, no phone-home. The engine runs on
+your checkout; diffs are never uploaded. The reasoning is done by the coding agent already in your
+editor — Splus itself makes no network calls.
 
 ## Build from source
 
@@ -173,8 +174,8 @@ crates/splus-engine/   # the deterministic engine (Rust) — the source of truth
 packages/
   shared/              # canonical Finding model (TS, mirrors Rust) + engine runner
   suppression/         # per-repo memory — suppress (dismiss) + reinforce (accept)
-  triage/              # optional LLM layer — the multi-pass review (downstream of the engine)
-  mcp/                 # the local MCP server your agent talks to
+  triage/              # benchmark harness — runs the protocol headlessly to measure it (not a usage path)
+  mcp/                 # the local MCP server your agent talks to — the one and only way to use Splus
 bench/                 # regression gate (run.mjs) + the Martian benchmark adapter (martian/)
 docs/                  # ARCHITECTURE.md · TOOLS.md
 install.sh             # the one-line installer

@@ -1,8 +1,8 @@
 # MCP tools reference
 
 Splus is a local **MCP server** (`splus-mcp`). Your coding agent connects to it
-over stdio and calls these six tools. Everything runs on your machine; no LLM runs
-in the server process unless you pass `llm: true` (which needs `ANTHROPIC_API_KEY`).
+over stdio and calls these six tools. Everything runs on your machine — there is
+no API key and no cloud step; the coding agent connected over stdio is the reviewer.
 
 | Tool | Mutates? | What it's for |
 |---|---|---|
@@ -41,9 +41,10 @@ Returns findings grouped `must-fix` / `concern` / `nit`, each with `file:line`, 
 rule id, severity, confidence, a deterministic provenance **anchor**, an optional
 fix, and cross-file **blast radius**. Learned suppressions are applied first.
 
-By default **no LLM runs** — the response ends with a **discovery directive** that
-drives *you* (the agent) through the senior-reviewer pass over the changed files.
-That's the design: Splus grounds you with precise anchors; you do the reasoning.
+There is **one flow** and you are the driver: the response always ends with a
+**discovery directive** that drives *you* (the agent) through the full protocol
+(triage → discover → verify) over the changed files. No API key — Splus grounds
+you with precise anchors; you do the reasoning. Run the protocol; don't relay.
 
 | Param | Type | Default | Description |
 |---|---|---|---|
@@ -51,16 +52,12 @@ That's the design: Splus grounds you with precise anchors; you do the reasoning.
 | `mode` | `working` \| `staged` \| `base` \| `all` | `working` | `working` = uncommitted vs HEAD; `staged` = the index (pre-commit); `base` = PR-style `base..HEAD`; `all` = the whole repo as if newly written. |
 | `base` | string | — | Base ref (branch/sha) — required when `mode: "base"`. |
 | `applyLearnings` | boolean | `true` | Apply this repo's learned suppressions. |
-| `llm` | boolean | `false` | Also run the headless LLM layer (needs `ANTHROPIC_API_KEY`). |
-| `thorough` | boolean | `false` | With `llm`, run the full discovery + verify pass. |
-| `discovery` | boolean | `true` | Append the directive that drives the agent's review. |
 | `precise` | boolean | `false` | Build a SCIP index first so blast radius is compiler-grade (~97% vs ~60%). Slower; needs the project's deps. |
 
-**Returns** (deterministic path): a one-line summary, then JSON with `summary`,
-`findings[]` (each with `id`, `file`, `line`, `severity`, `tier`, `ruleId`,
-`category`, `anchor`, `confidence`, `suggestion`, `blastRadius`), `suppressed[]`,
-any `reinforced` ids, and the discovery directive. With `llm: true`, returns the
-triaged report instead (kept/suppressed + per-finding rationale + verify counts).
+**Returns**: a one-line summary, then JSON with `summary`, `findings[]` (each with
+`id`, `file`, `line`, `severity`, `tier`, `ruleId`, `category`, `anchor`,
+`confidence`, `suggestion`, `blastRadius`), `suppressed[]`, any `reinforced` ids,
+and the discovery directive that drives your review.
 
 ```jsonc
 // review(mode: "staged")
