@@ -8,22 +8,22 @@
  * `.splus-cache/learnings.json`, and returns findings. No account, no token,
  * nothing leaves your machine.
  *
- * The agent is still the reviewer — Splus supplies precise, deterministic
- * findings (each with a provenance anchor + cross-file blast radius); the agent
- * reasons over them, surfaces what matters, and applies fixes. No LLM runs in
- * this process unless you opt in by setting ANTHROPIC_API_KEY, in which case
- * `review` can additionally triage the findings with the LLM layer.
+ * ONE flow, and the agent in the chair is the driver: Splus supplies precise,
+ * deterministic findings (each with a provenance anchor + cross-file blast
+ * radius), and `review` returns a directive that drives the agent through the
+ * full review protocol (triage → discover → verify) over the changed code. No
+ * API key, ever — the frontier model already in the session does the reasoning.
  *
  * Config (env, all optional):
- *   SPLUS_ENGINE      path to the splus-engine binary (else auto-resolved / PATH)
- *   ANTHROPIC_API_KEY enables the opt-in LLM triage path
+ *   SPLUS_ENGINE  path to the splus-engine binary (else auto-resolved / PATH)
  *
  * Tools:
  *   review     — review staged / working / base..HEAD / whole-repo changes
  *   report     — render the review as a standalone offline HTML report (final step)
  *   dismiss    — teach Splus a finding is noise (generalizes semantically)
+ *   accept     — teach Splus a finding was real (reinforces close variants)
  *   mute       — mute an entire rule for this repo
- *   learnings  — list what's been suppressed on this repo
+ *   learnings  — list what's been learned on this repo
  *   index      — build a SCIP index for the precise blast-radius tier
  *
  * Protocol note: on a stdio transport, stdout IS the MCP channel. Everything
@@ -40,7 +40,6 @@ import {
   FileSuppressionStore,
   type SuppressedFinding,
 } from "@splus/suppression";
-import type { TriagedReport } from "@splus/triage";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -52,7 +51,23 @@ import { REPORT_TEMPLATE } from "./reportTemplate.js";
 declare const __SPLUS_VERSION__: string;
 const VERSION = typeof __SPLUS_VERSION__ !== "undefined" ? __SPLUS_VERSION__ : "dev";
 
-const server = new McpServer({ name: "splus", version: VERSION });
+/**
+ * Server-level instructions, surfaced to the host agent at connection time —
+ * BEFORE it plans its first move. This is where the "one flow, you are the
+ * driver, never ask about an API key" contract has to live: a directive inside
+ * a tool *result* arrives too late to stop the agent from asking the user first.
+ */
+const SERVER_INSTRUCTIONS = `Splus turns the coding agent already in this session into a disciplined, precision-first code reviewer. There is ONE way to use it and you are the driver — the review is agent-driven and needs NO API key.
+
+When the user asks you to review code:
+1. Call \`review\` (mode: working/staged/base/all; add precise:true for compiler-grade blast radius). Do NOT ask whether to run a "deterministic-only" review, and do NOT ask about an ANTHROPIC_API_KEY — neither exists in this flow; the complete review requires neither.
+2. The result gives you the deterministic FLOOR of findings plus a directive. Execute it: read the changed files and run the protocol yourself — TRIAGE each finding (keep/suppress), DISCOVER what determinism missed (logic / security / intent / concurrency), and VERIFY every finding you would post by trying to refute it against the cited line. Drop anything you can't defend — a wrong comment costs more than a missed nit.
+3. Report the survivors as must-fix / concern / nit with file:line and a concrete fix. Don't just relay the engine's findings — running the protocol IS the review.
+4. Teach the repo as you go: \`dismiss <id>\` when a finding is noise, \`accept <id>\` when it was real.
+
+Other tools: \`mute\` silences a rule for this repo, \`learnings\` lists what's been taught, \`index\` builds a SCIP index for precise blast radius.`;
+
+const server = new McpServer({ name: "splus", version: VERSION }, { instructions: SERVER_INSTRUCTIONS });
 
 type ReviewMode = "working" | "staged" | "base" | "all";
 
@@ -74,18 +89,6 @@ function fail(text: string): CallToolResult {
 /** The repo-local learned-suppression store (one file per repo). */
 function learningsPath(root: string): string {
   return join(root, ".splus-cache", "learnings.json");
-}
-
-/** The raw unified diff for a review mode — fed to the discovery pass for recall. */
-function diffText(repo: string, mode: ReviewMode, base: string | null): string | undefined {
-  const args =
-    mode === "staged" ? ["diff", "--cached"]
-    : mode === "base" ? ["diff", `${base}...HEAD`]
-    : mode === "all" ? null
-    : ["diff"];
-  if (!args) return undefined;
-  const r = spawnSync("git", args, { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  return r.status === 0 ? r.stdout : undefined;
 }
 
 function toMode(mode: ReviewMode, base: string | null): DiffMode {
@@ -170,32 +173,6 @@ function toAgentReport(report: Report, suppressed: SuppressedFinding[]) {
   };
 }
 
-/** The agent-facing shape of an LLM-triaged report (opt-in path). */
-function toAgentTriaged(t: TriagedReport) {
-  return {
-    summary: { totalKept: t.findings.length, ...t.llm },
-    findings: t.findings.map((f) => ({
-      id: f.id,
-      file: f.file,
-      line: f.region.start_line,
-      severity: f.severity,
-      tier: f.tier,
-      ruleId: f.rule_id,
-      title: f.title,
-      rationale: f.rationale,
-      confidence: f.llmConfidence,
-      suggestion: f.suggestion ?? null,
-      llmOnly: f.llmOnly ?? false,
-    })),
-    suppressed: t.suppressed.map((f) => ({
-      file: f.file,
-      line: f.region.start_line,
-      ruleId: f.rule_id,
-      reason: f.rationale,
-    })),
-  };
-}
-
 function summaryLine(report: Report, suppressedCount: number): string {
   const s = report.summary;
   const supp = suppressedCount > 0 ? ` · ${suppressedCount} suppressed by learnings` : "";
@@ -203,11 +180,11 @@ function summaryLine(report: Report, suppressedCount: number): string {
 }
 
 /**
- * The handoff that makes Splus full-power inside a coding agent: the agent IS the
- * senior reviewer. The deterministic findings are the floor; this directive drives
- * the agent through the discovery pass determinism can't do (logic / security /
- * intent), grounded in the cited code + blast radius. No API key — the frontier
- * model already in the chair does the reasoning.
+ * The handoff — and the whole product. The agent in the chair IS the reviewer.
+ * The deterministic findings are the floor; this directive drives the agent
+ * through the same protocol the engine can only ground, as explicit numbered
+ * stages (triage → discover → verify → report → teach) so the review is run, not
+ * relayed. No API key — the frontier model already in the session does the work.
  */
 function discoveryDirective(files: string[]): string {
   const shown = files.slice(0, 40);
@@ -216,23 +193,23 @@ function discoveryDirective(files: string[]): string {
     (shown.map((f) => `  - ${f}`).join("\n") || "  (no changed files)") +
     (more > 0 ? `\n  …and ${more} more` : "");
   return [
-    "=== Splus · discovery pass (you are the reviewer) ===",
-    "The findings above are the DETERMINISTIC floor — high-precision, each anchored to a pattern, metric, or cross-file graph edge. They are NOT the whole review. You are the senior reviewer in the chair: read the changed code and find what determinism cannot.",
+    "=== Splus · you are the reviewer (one flow — no API key) ===",
+    "The findings above are the DETERMINISTIC FLOOR — high-precision, each anchored to a pattern, metric, or cross-file graph edge. They are NOT the review. You are the senior reviewer in the chair: run the full protocol over the changed code yourself.",
     "",
-    "Read the changed files:",
+    "Changed files:",
     list,
     "",
-    "Hunt for REAL issues, each grounded in a line that exists:",
-    "  • correctness — off-by-one, missing await / unhandled error path, wrong condition, null/undefined deref, resource leak, broken invariant",
-    "  • security — injection / path-traversal / SSRF reachable from input, authz/IDOR gaps, unsafe deserialization, secret & credential handling, command or eval",
-    "  • intent — does the code do what its name, comments, and the change claim? dead, contradictory, or silently fail-open logic",
-    "  • failure & concurrency — races, partial writes, retries, fail-open where it must fail-closed",
-    "  • blast radius — for any changed export with callers (see findings above), open each call site and confirm it still holds",
-    "",
-    "Before posting anything, VERIFY each candidate: re-read the cited line and try to REFUTE it — drop any you can't defend (already handled nearby, speculative, the line doesn't actually demonstrate it). A wrong comment costs more than a missed nit.",
-    "Report the survivors as must-fix / concern / nit with file:line and a concrete fix. Never invent a finding; every claim cites a real line. Teach Splus as you go: `dismiss <id>` when the user agrees something is noise, `accept <id>` when they act on a real one — it learns this repo both ways.",
-    "",
-    "FINAL STEP — the shareable report: once your verification pass is done, call the `report` tool to get the standalone HTML template, fill it with the verdict + your verified findings + the impact graph, and write `splus-report.html`. That one self-contained, offline file is the deliverable a dev keeps next to the diff — it ends every review.",
+    "1. TRIAGE — for each finding above, decide keep vs suppress. Optimize for signal: suppress test fixtures, idiomatic patterns for the file's role, and pure style; keep what a senior reviewer would genuinely want fixed before merge. A noisy comment costs more than a missed nit.",
+    "2. DISCOVER — read the changed code and find what determinism cannot, each grounded in a line that exists:",
+    "   • correctness — off-by-one, missing await / unhandled error path, wrong condition, null/undefined deref, resource leak, broken invariant",
+    "   • security — injection / path-traversal / SSRF reachable from input, authz/IDOR gaps, unsafe deserialization, secret & credential handling, command or eval",
+    "   • intent — does the code do what its name, comments, and the change claim? dead, contradictory, or silently fail-open logic",
+    "   • failure & concurrency — races, partial writes, retries, fail-open where it must fail-closed",
+    "   • blast radius — for any changed export with callers (see findings above), open each call site and confirm it still holds",
+    "3. VERIFY — before posting anything, re-read each candidate's cited line and try to REFUTE it. Drop any you can't defend (already handled nearby, speculative, the line doesn't actually demonstrate it). A wrong comment costs more than a missed nit.",
+    "4. REPORT — the survivors as must-fix / concern / nit with file:line and a concrete fix. Never invent a finding; every claim cites a real line.",
+    "5. TEACH — `dismiss <id>` when the user agrees something is noise, `accept <id>` when they act on a real one — Splus learns this repo both ways.",
+    "6. RENDER — the deliverable that ends the review: call the `report` tool, fill the returned HTML template with the verdict + your verified survivors + the file-level impact graph, and write `splus-report.html`. One self-contained, offline file — the artifact a dev keeps next to the diff.",
   ].join("\n");
 }
 
@@ -273,20 +250,19 @@ server.registerTool(
   {
     title: "Review code changes",
     description:
-      "Run Splus's deterministic review on NEW/changed lines only (clean-as-you-code), entirely " +
-      "on your local machine. Returns findings grouped must-fix / concern / nit — each with " +
-      "file:line, rule id, severity, confidence, a deterministic provenance anchor, an optional " +
-      "fix, and cross-file blast radius (who calls the changed symbol). Per-repo learned " +
-      "suppressions are applied first. No LLM runs unless you pass llm=true (needs " +
-      "ANTHROPIC_API_KEY) — otherwise YOU are the reviewer: read these findings, surface the ones " +
-      "that matter, and apply fixes. The result ends with a DISCOVERY DIRECTIVE that drives you " +
-      "through a senior-reviewer pass over the changed files (logic / security / intent bugs " +
-      "determinism can't see) — that's the design: Splus grounds you with precise anchors + blast " +
-      "radius, and you, the frontier model in the chair, do the reasoning. Do that pass; don't just " +
-      "relay the findings. With llm=true + thorough=true Splus runs the full protocol headlessly " +
-      "(detect → impact → triage → remediate → verify, where an adversarial pass drops " +
-      "plausible-but-wrong findings). Set discovery=false to suppress the directive. Teach the repo: " +
-      "`dismiss <id>` when the user agrees something is noise, `accept <id>` when they act on a real one.",
+      "Review code changes — YOU, the coding agent in this session, are the reviewer; no API key, " +
+      "ever. One flow: this runs Splus's deterministic engine on the NEW/changed lines only " +
+      "(clean-as-you-code, entirely local) to give you a grounded FLOOR of findings — each grouped " +
+      "must-fix / concern / nit with file:line, rule id, severity, confidence, a deterministic " +
+      "provenance anchor, an optional fix, and cross-file blast radius — applies this repo's learned " +
+      "suppressions, and returns a DISCOVERY DIRECTIVE. Execute that directive: it drives you through " +
+      "the full review protocol over the changed files — TRIAGE each finding (keep/suppress for " +
+      "signal), DISCOVER the logic / security / intent bugs determinism can't see, VERIFY every " +
+      "finding by trying to refute it against the cited line, then REPORT the survivors with concrete " +
+      "fixes. Don't just relay the findings — running the protocol IS the review. Then teach the repo: " +
+      "`dismiss <id>` when something is noise, `accept <id>` when a finding was real. Scope with `mode` " +
+      "(working / staged / base / all); set `precise:true` to build a SCIP index first for " +
+      "compiler-grade blast radius.",
     inputSchema: {
       root: z
         .string()
@@ -305,20 +281,6 @@ server.registerTool(
         .boolean()
         .optional()
         .describe("Apply this repo's learned suppressions (default true)."),
-      llm: z
-        .boolean()
-        .optional()
-        .describe("Also triage the findings with the LLM layer (needs ANTHROPIC_API_KEY). Default false."),
-      thorough: z
-        .boolean()
-        .optional()
-        .describe("With llm=true, also run the headless discovery pass (frontier API model) for logic/security bugs."),
-      discovery: z
-        .boolean()
-        .optional()
-        .describe(
-          "Append the directive that drives YOU (the agent) through the senior-reviewer discovery pass over the changed files. Default true — this is what makes Splus full-power in an interactive agent (no API key; you are the model).",
-        ),
       precise: z
         .boolean()
         .optional()
@@ -328,7 +290,7 @@ server.registerTool(
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
-  async ({ root, mode, base, applyLearnings, llm, thorough, discovery, precise }) => {
+  async ({ root, mode, base, applyLearnings, precise }) => {
     const repo = rootOf(root);
     const m = (mode ?? "working") as ReviewMode;
     if (m === "base" && !base) return fail("mode='base' requires a `base` ref.");
@@ -377,32 +339,11 @@ server.registerTool(
         : "";
     const preciseNote = preciseNotes.length ? `\n\n${preciseNotes.join("\n")}` : "";
 
-    // Optional LLM triage (opt-in). Dynamically imported so the Anthropic SDK is
-    // only loaded when actually used. Falls back to deterministic on any error.
-    if (llm) {
-      try {
-        const { triage } = await import("@splus/triage");
-        const triaged = await triage(report, {
-          root: repo,
-          thorough: thorough === true,
-          changedFiles: listChangedFiles(repo, dmode),
-          diff: diffText(repo, m, base ?? null),
-        });
-        return ok(
-          `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(toAgentTriaged(triaged), null, 2)}${reinforcedNote}${preciseNote}`,
-        );
-      } catch (e) {
-        process.stderr.write(
-          `splus-mcp: LLM triage unavailable (${e instanceof Error ? e.message : String(e)}); ` +
-            `returning deterministic findings.\n`,
-        );
-      }
-    }
-
     const payload = toAgentReport(report, suppressed);
     const body = `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(payload, null, 2)}${reinforcedNote}${preciseNote}`;
-    // The handoff: ground the agent, then drive it through the discovery pass.
-    if (discovery === false) return ok(body);
+    // The handoff, and the whole product: ground the agent with the deterministic
+    // floor, then drive it through the protocol. The directive is ALWAYS appended
+    // — there is no other path, no key, no headless mode to choose between.
     return ok(`${body}\n\n${discoveryDirective(listChangedFiles(repo, dmode))}`);
   },
 );
@@ -695,11 +636,9 @@ server.registerTool(
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  const llm = process.env.ANTHROPIC_API_KEY?.trim()
-    ? "LLM triage available (ANTHROPIC_API_KEY set)"
-    : "deterministic only (set ANTHROPIC_API_KEY for optional LLM triage)";
   process.stderr.write(
-    `splus-mcp ready (stdio) — local engine, no network · ${llm}; tools: review, report, dismiss, mute, learnings, index\n`,
+    "splus-mcp ready (stdio) — local engine, no network · you are the reviewer; " +
+      "tools: review, report, dismiss, accept, mute, learnings, index\n",
   );
 }
 
