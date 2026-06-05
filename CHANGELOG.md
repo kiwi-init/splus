@@ -5,6 +5,8 @@ this project uses [semantic versioning](https://semver.org) (pre-1.0: minor vers
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-06-05
+
 ### Fixed
 - **Installer supply-chain verification.** Optional gitleaks and osv-scanner
   downloads are now verified against their upstream release SHA-256 manifests
