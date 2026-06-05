@@ -27,7 +27,14 @@ agent it finds (Claude Code, Codex, OpenCode). Then, in your agent:
 
 > "review my staged changes with splus"
 
-Requirements: **git** and **node ≥ 20**. Update anytime by re-running the one-liner.
+Requirements: **git** and **node ≥ 20**. Update anytime with:
+
+```sh
+splus update
+```
+
+Updates preserve existing agent wiring and use compact output. Re-run the install
+one-liner if upgrading from a release that predates the `splus` update command.
 
 <details>
 <summary>Wire an agent manually</summary>

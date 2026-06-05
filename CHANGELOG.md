@@ -5,6 +5,22 @@ this project uses [semantic versioning](https://semver.org) (pre-1.0: minor vers
 
 ## [Unreleased]
 
+### Fixed
+- **Installer supply-chain verification.** Optional gitleaks and osv-scanner
+  downloads are now verified against their upstream release SHA-256 manifests
+  before installation; verification failure skips the adapter instead of
+  installing untrusted bytes.
+- **OSV change attribution.** Lockfile findings are diffed against the base
+  lockfile by advisory, ecosystem, package, and version, so an unrelated
+  lockfile edit no longer labels pre-existing vulnerabilities as introduced.
+- **Triage summary consistency.** The optional triage API now recomputes its
+  canonical finding and tier counts from the final kept set.
+
+### Changed
+- **Quieter updates.** Existing installations use compact update output, preserve
+  agent wiring by default, omit first-run onboarding, and install a lightweight
+  `splus update` / `splus version` command for future upgrades.
+
 ## [0.9.0] — agent-led: the engine on tap
 
 Splus flips from engine-*led* (push a finding list through a gate) to agent-*led*

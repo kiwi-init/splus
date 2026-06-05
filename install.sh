@@ -16,6 +16,8 @@
 #   SPLUS_NO_MODIFY_PATH=1  don't touch shell rc files
 #   SPLUS_NO_WIRE=1         don't auto-wire coding agents
 #   SPLUS_NO_ADAPTERS=1     don't download the optional gitleaks/osv-scanner adapters
+#   SPLUS_UPDATE=1          force compact update mode (auto-detected for existing installs)
+#   SPLUS_REWIRE=1          re-wire coding agents during an update
 set -eu
 
 REPO="kiwi-init/splus"
@@ -23,12 +25,37 @@ INSTALL_DIR="${SPLUS_INSTALL_DIR:-$HOME/.splus}"
 BIN_DIR="$INSTALL_DIR/bin"
 LIB_DIR="$INSTALL_DIR/lib"
 MCP_BIN="$BIN_DIR/splus-mcp"
+previous_version=""
+[ -f "$INSTALL_DIR/version" ] && previous_version=$(cat "$INSTALL_DIR/version" 2>/dev/null || true)
+updating=0
+if [ -n "${SPLUS_UPDATE:-}" ] || [ -x "$BIN_DIR/splus-engine" ] || [ -f "$LIB_DIR/mcp.cjs" ]; then
+  updating=1
+fi
 
 c_b='\033[1m'; c_dim='\033[2m'; c_grn='\033[32m'; c_red='\033[31m'; c_0='\033[0m'
 say()  { printf '%b\n' "${c_dim}splus${c_0} $*"; }
+detail() { [ "$updating" -eq 1 ] || say "$@"; }
 ok()   { printf '%b\n' "  ${c_grn}✓${c_0} $*"; }
 warn() { printf '%b\n' "  ${c_red}!${c_0} $*"; }
 die()  { printf '%b\n' "${c_red}splus: $*${c_0}" >&2; exit 1; }
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
+  else return 1
+  fi
+}
+
+verify_manifest() {
+  file=$1 manifest=$2 name=$3
+  if [ -n "${SPLUS_INSECURE:-}" ]; then
+    warn "SPLUS_INSECURE=1 — skipping checksum verification for $name"
+    return 0
+  fi
+  sum=$(sha256_file "$file") || return 1
+  want=$(awk -v a="$name" '{ n=$2; sub(/^\*/, "", n); if (n == a) { print $1; exit } }' "$manifest")
+  [ -n "$want" ] && [ "$sum" = "$want" ]
+}
 
 # --- preflight -------------------------------------------------------------
 command -v git  >/dev/null 2>&1 || die "git is required but not found. Install git and re-run."
@@ -48,14 +75,23 @@ case "$arch" in
 esac
 asset="splus-${os}-${arch}.tar.gz"
 
-say "installing for ${c_b}${os}-${arch}${c_0} → ${INSTALL_DIR}"
+if [ "$updating" -eq 1 ]; then
+  from=${previous_version:-installed}
+  if [ "$from" = "latest" ]; then
+    say "updating on ${os}-${arch}"
+  else
+    say "updating ${c_b}${from}${c_0} on ${os}-${arch}"
+  fi
+else
+  say "installing for ${c_b}${os}-${arch}${c_0} → ${INSTALL_DIR}"
+fi
 mkdir -p "$BIN_DIR" "$LIB_DIR"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 # --- fetch artifacts -------------------------------------------------------
 if [ -n "${SPLUS_LOCAL_DIST:-}" ]; then
-  say "using local dist: $SPLUS_LOCAL_DIST"
+  detail "using local dist: $SPLUS_LOCAL_DIST"
   cp "$SPLUS_LOCAL_DIST/splus-engine" "$tmp/" || die "missing splus-engine in SPLUS_LOCAL_DIST"
   cp "$SPLUS_LOCAL_DIST/mcp.cjs" "$tmp/" || die "missing mcp.cjs in SPLUS_LOCAL_DIST"
   version="local"
@@ -69,7 +105,7 @@ else
   else base="https://github.com/$REPO/releases/download/$ver"; fi
   version="$ver"
 
-  say "downloading $asset ($ver)"
+  detail "downloading $asset ($ver)"
   dl "$base/$asset" "$tmp/$asset" || die "download failed: $base/$asset (no release for ${os}-${arch}?)"
 
   # Verify integrity. For a real release this is MANDATORY — never install an
@@ -80,12 +116,8 @@ else
   else
     dl "$base/SHA256SUMS" "$tmp/SHA256SUMS" \
       || die "could not fetch SHA256SUMS for $ver — refusing to install unverified (SPLUS_INSECURE=1 to override)"
-    if command -v sha256sum >/dev/null 2>&1; then sum=$(sha256sum "$tmp/$asset" | awk '{print $1}')
-    elif command -v shasum >/dev/null 2>&1; then sum=$(shasum -a 256 "$tmp/$asset" | awk '{print $1}')
-    else die "no sha256sum/shasum found to verify the download (SPLUS_INSECURE=1 to override)"; fi
-    want=$(awk -v a="$asset" '$2 == a { print $1 }' "$tmp/SHA256SUMS")
-    [ -n "$want" ] || die "no checksum listed for $asset — refusing to install unverified"
-    [ "$sum" = "$want" ] || die "checksum mismatch for $asset (expected ${want}, got ${sum})"
+    verify_manifest "$tmp/$asset" "$tmp/SHA256SUMS" "$asset" \
+      || die "checksum mismatch or missing checksum for $asset"
     ok "checksum verified"
   fi
   tar -xzf "$tmp/$asset" -C "$tmp" || die "extract failed"
@@ -101,8 +133,45 @@ export SPLUS_ENGINE="\${SPLUS_ENGINE:-$BIN_DIR/splus-engine}"
 exec node "$LIB_DIR/mcp.cjs" "\$@"
 EOF
 chmod 0755 "$BIN_DIR/splus-mcp"
+
+# Keep a tiny update command even though the old full CLI was retired in v0.9.
+# It enters compact update mode directly, avoiding the old URL preamble and
+# first-install onboarding on every upgrade.
+cat > "$BIN_DIR/splus" <<EOF
+#!/bin/sh
+set -eu
+case "\${1:-}" in
+  update)
+    export SPLUS_UPDATE=1
+    export SPLUS_INSTALL_DIR="\${SPLUS_INSTALL_DIR:-$INSTALL_DIR}"
+    tmp=\$(mktemp)
+    trap 'rm -f "\$tmp"' EXIT
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL https://splus.sh/install.sh -o "\$tmp"
+    elif command -v wget >/dev/null 2>&1; then
+      wget -qO "\$tmp" https://splus.sh/install.sh
+    else
+      echo "splus: curl or wget is required to update" >&2
+      exit 1
+    fi
+    sh "\$tmp"
+    ;;
+  --version|version)
+    cat "\${SPLUS_INSTALL_DIR:-$INSTALL_DIR}/version"
+    ;;
+  *)
+    echo "usage: splus update | splus version" >&2
+    exit 2
+    ;;
+esac
+EOF
+chmod 0755 "$BIN_DIR/splus"
 printf '%s\n' "$version" > "$INSTALL_DIR/version"
-ok "installed splus-mcp, splus-engine → $BIN_DIR"
+if [ "$updating" -eq 1 ]; then
+  ok "core updated"
+else
+  ok "installed splus, splus-mcp, splus-engine → $BIN_DIR"
+fi
 
 # --- optional: provision external adapters (best-effort) -------------------
 # The engine ships native, local detectors (secrets + injection/deser/TLS sinks).
@@ -114,28 +183,44 @@ ok "installed splus-mcp, splus-engine → $BIN_DIR"
 if [ -z "${SPLUS_NO_ADAPTERS:-}" ] && { command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; }; then
   if command -v curl >/dev/null 2>&1; then afetch() { curl -fsSL "$1" -o "$2"; }
   else afetch() { wget -qO "$2" "$1"; }; fi
-  say "provisioning adapters (skip with SPLUS_NO_ADAPTERS=1)"
+  detail "provisioning adapters (skip with SPLUS_NO_ADAPTERS=1)"
+  adapters_installed=""
 
   # gitleaks — diff-scoped secret scanning (asset arch matches ours: arm64/x64).
   gl_ver="8.30.1"
+  gl_asset="gitleaks_${gl_ver}_${os}_${arch}.tar.gz"
   atmp=$(mktemp -d)
-  if afetch "https://github.com/gitleaks/gitleaks/releases/download/v${gl_ver}/gitleaks_${gl_ver}_${os}_${arch}.tar.gz" "$atmp/gl.tgz" 2>/dev/null \
-     && tar -xzf "$atmp/gl.tgz" -C "$atmp" gitleaks 2>/dev/null; then
-    install -m 0755 "$atmp/gitleaks" "$BIN_DIR/gitleaks" && ok "adapter: gitleaks (secrets)"
+  gl_base="https://github.com/gitleaks/gitleaks/releases/download/v${gl_ver}"
+  if afetch "$gl_base/$gl_asset" "$atmp/$gl_asset" 2>/dev/null \
+     && afetch "$gl_base/gitleaks_${gl_ver}_checksums.txt" "$atmp/checksums.txt" 2>/dev/null \
+     && verify_manifest "$atmp/$gl_asset" "$atmp/checksums.txt" "$gl_asset" \
+     && tar -xzf "$atmp/$gl_asset" -C "$atmp" gitleaks 2>/dev/null \
+     && install -m 0755 "$atmp/gitleaks" "$BIN_DIR/gitleaks"; then
+    adapters_installed="gitleaks"
   else
-    warn "adapter: gitleaks not installed for ${os}-${arch} (engine's native secret rules still apply)"
+    rm -f "$BIN_DIR/gitleaks"
+    warn "gitleaks adapter skipped (download or checksum verification failed)"
   fi
-  rm -rf "$atmp"
+  rm -rf "${atmp:?}"
 
   # osv-scanner — dependency CVEs (osv uses amd64; we call x64 → map it).
   osv_arch="$arch"; [ "$arch" = "x64" ] && osv_arch="amd64"
-  if afetch "https://github.com/google/osv-scanner/releases/download/v2.3.8/osv-scanner_${os}_${osv_arch}" "$BIN_DIR/osv-scanner" 2>/dev/null \
-     && [ -s "$BIN_DIR/osv-scanner" ]; then
-    chmod 0755 "$BIN_DIR/osv-scanner" && ok "adapter: osv-scanner (dependency CVEs)"
+  osv_ver="2.3.8"
+  osv_asset="osv-scanner_${os}_${osv_arch}"
+  atmp=$(mktemp -d)
+  osv_base="https://github.com/google/osv-scanner/releases/download/v${osv_ver}"
+  if afetch "$osv_base/$osv_asset" "$atmp/$osv_asset" 2>/dev/null \
+     && afetch "$osv_base/osv-scanner_SHA256SUMS" "$atmp/checksums.txt" 2>/dev/null \
+     && verify_manifest "$atmp/$osv_asset" "$atmp/checksums.txt" "$osv_asset" \
+     && install -m 0755 "$atmp/$osv_asset" "$BIN_DIR/osv-scanner"; then
+    if [ -n "$adapters_installed" ]; then adapters_installed="$adapters_installed, osv-scanner"
+    else adapters_installed="osv-scanner"; fi
   else
     rm -f "$BIN_DIR/osv-scanner"
-    warn "adapter: osv-scanner not installed (dependency-CVE checks unavailable)"
+    warn "osv-scanner adapter skipped (download or checksum verification failed)"
   fi
+  rm -rf "${atmp:?}"
+  [ -z "$adapters_installed" ] || ok "adapters verified: $adapters_installed"
 fi
 
 # --- PATH ------------------------------------------------------------------
@@ -157,7 +242,7 @@ esac
 
 # --- wire coding agents ----------------------------------------------------
 wired=0
-if [ -z "${SPLUS_NO_WIRE:-}" ]; then
+if [ -z "${SPLUS_NO_WIRE:-}" ] && { [ "$updating" -eq 0 ] || [ -n "${SPLUS_REWIRE:-}" ]; }; then
   say "wiring coding agents"
 
   # Claude Code — use its CLI (idempotent: remove then add).
@@ -217,6 +302,10 @@ EOF
 fi
 
 # --- done ------------------------------------------------------------------
-printf '\n%b\n' "${c_grn}${c_b}Splus is installed.${c_0}"
-printf '%b\n' "  ${c_dim}then, in your agent:${c_0} \"review my staged changes with splus\""
-printf '%b\n' "  ${c_dim}update:${c_0} re-run  curl -fsSL https://splus.sh/install.sh | sh"
+if [ "$updating" -eq 1 ]; then
+  printf '\n%b\n' "${c_grn}${c_b}Splus is up to date.${c_0}"
+else
+  printf '\n%b\n' "${c_grn}${c_b}Splus is installed.${c_0}"
+  printf '%b\n' "  ${c_dim}then, in your agent:${c_0} \"review my staged changes with splus\""
+  printf '%b\n' "  ${c_dim}update:${c_0} splus update"
+fi

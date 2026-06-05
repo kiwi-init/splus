@@ -86,6 +86,10 @@ test("splits keep/suppress and fails open on missing verdicts", async () => {
   assert.match(f3?.rationale ?? "", /no LLM verdict/);
 
   assert.equal(out.suppressed[0]?.id, "f2");
+  assert.equal(out.summary.findings_total, 2);
+  assert.equal(out.summary.must_fix, 2);
+  assert.equal(out.summary.concern, 0);
+  assert.equal(out.summary.nit, 0);
   assert.equal(out.summary.suppressed, 1);
   assert.equal(out.llm.triaged, 3);
   assert.equal(out.llm.inputTokens, 100);
@@ -242,6 +246,10 @@ test("signal budget caps low/medium discoveries per file to the most-confident f
   assert.equal(out.llm.discovered, 5, "five discovered");
   assert.equal(out.llm.budgeted, 2, "two demoted by the per-file budget");
   assert.equal(out.findings.length, 3, "only the 3 most-confident surface");
+  assert.equal(out.summary.findings_total, 3, "summary reflects the final kept set");
+  assert.equal(out.summary.must_fix, 0);
+  assert.equal(out.summary.concern, 0);
+  assert.equal(out.summary.nit, 3);
   const surfaced = out.findings.map((f) => f.title).sort();
   assert.deepEqual(surfaced, ["nit-1", "nit-3", "nit-5"], "kept the top-3 by confidence (0.9/0.8/0.7)");
   const demoted = out.suppressed.filter((f) => /signal budget/.test(f.rationale ?? ""));

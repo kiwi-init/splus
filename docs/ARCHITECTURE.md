@@ -146,8 +146,10 @@ flowchart LR
 ## Distribution
 
 `install.sh` downloads the engine + the bundled MCP server (`dist-release/mcp.cjs`)
-into `~/.splus`, provisions the gitleaks/osv-scanner adapters, and wires the MCP
-server into every coding agent it finds. Releases are cut by tagging `v*`
+into `~/.splus`, verifies the optional gitleaks/osv-scanner adapters against their
+upstream SHA-256 manifests, and wires the MCP server into every coding agent it
+finds. Existing installs enter compact update mode and preserve agent wiring unless
+`SPLUS_REWIRE=1` is set. Releases are cut by tagging `v*`
 (`.github/workflows/release.yml`).
 
 ## Measuring quality
