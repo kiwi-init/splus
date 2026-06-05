@@ -353,12 +353,17 @@ export async function triage(report: Report, opts: TriageOptions): Promise<Triag
   const budgeted = applySignalBudget(kept, suppressed);
 
   kept.sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || b.llmConfidence - a.llmConfidence);
+  const countTier = (tier: Finding["tier"]) => kept.filter((f) => f.tier === tier).length;
 
   return {
     tool: report.tool,
     version: report.version,
     summary: {
       ...report.summary,
+      findings_total: kept.length,
+      must_fix: countTier("must-fix"),
+      concern: countTier("concern"),
+      nit: countTier("nit"),
       suppressed: suppressed.length,
       notes: [...report.summary.notes, ...extraNotes],
     },

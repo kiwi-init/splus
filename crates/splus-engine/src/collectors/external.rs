@@ -10,9 +10,11 @@
 use super::{Collector, ReviewContext};
 use crate::model::{Anchor, AnchorKind, Category, Finding, Region, Severity};
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tempfile::tempdir;
 
 /// Optional adapters, in priority order.
 pub const ADAPTERS: &[&str] = &["semgrep", "ast-grep", "gitleaks", "osv-scanner"];
@@ -293,7 +295,8 @@ fn run_gitleaks(ctx: &ReviewContext) -> Vec<Finding> {
 // --- osv-scanner (JSON) ----------------------------------------------------
 
 fn run_osv(ctx: &ReviewContext) -> Vec<Finding> {
-    // Scan only changed lockfiles for newly-relevant known vulns.
+    // A changed lockfile is only the trigger. Diff scanner results against the
+    // base lockfile so long-standing vulnerabilities are not called introduced.
     let lockfiles: Vec<&str> = ctx
         .files
         .iter()
@@ -303,44 +306,105 @@ fn run_osv(ctx: &ReviewContext) -> Vec<Finding> {
     let mut findings = Vec::new();
     for lf in lockfiles {
         let abs = ctx.root.join(lf);
-        let Ok(out) = Command::new("osv-scanner")
-            .args(["--format", "json", "--lockfile"])
-            .arg(&abs)
-            .output()
-        else {
+        let Some(head) = scan_osv_lockfile(&abs) else {
             continue;
         };
-        let Ok(doc): Result<Value, _> = serde_json::from_slice(&out.stdout) else {
-            continue;
-        };
-        for result in doc.get("results").and_then(|r| r.as_array()).into_iter().flatten() {
-            for pkg in result.get("packages").and_then(|p| p.as_array()).into_iter().flatten() {
-                let name = pkg
-                    .get("package")
-                    .and_then(|p| p.get("name"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("dependency");
-                for vuln in pkg.get("vulnerabilities").and_then(|v| v.as_array()).into_iter().flatten() {
-                    let id = vuln.get("id").and_then(|v| v.as_str()).unwrap_or("VULN");
-                    let summary = vuln.get("summary").and_then(|v| v.as_str()).unwrap_or("Known vulnerability");
-                    findings.push(Finding::new(
-                        &format!("supplychain.{id}"),
-                        Category::Supplychain,
-                        Severity::High,
-                        lf,
-                        Region::line(1),
-                        &format!("Vulnerable dependency: {name}"),
-                        &format!("{id}: {summary} (introduced/updated in this change to {lf})"),
-                        Anchor { kind: AnchorKind::Vuln, detail: format!("osv:{id}") },
-                        0.85,
-                        "osv-scanner",
-                        &format!("{lf}:{id}:{name}"),
-                    ));
-                }
+        let base_keys: HashSet<OsvKey> = match ctx.base_content(lf) {
+            Some(content) => {
+                let Some(base) = scan_osv_content(&content, lf) else {
+                    continue;
+                };
+                base.into_iter().map(|v| v.key).collect()
             }
+            None => HashSet::new(),
+        };
+
+        for vuln in only_new_osv(head, &base_keys) {
+            findings.push(Finding::new(
+                &format!("supplychain.{}", vuln.key.id),
+                Category::Supplychain,
+                Severity::High,
+                lf,
+                Region::line(1),
+                &format!("Vulnerable dependency: {}", vuln.key.name),
+                &format!(
+                    "{}: {} (introduced/updated {}@{} in this change to {lf})",
+                    vuln.key.id, vuln.summary, vuln.key.name, vuln.key.version
+                ),
+                Anchor { kind: AnchorKind::Vuln, detail: format!("osv:{}", vuln.key.id) },
+                0.85,
+                "osv-scanner",
+                &format!(
+                    "{lf}:{}:{}:{}:{}",
+                    vuln.key.id, vuln.key.ecosystem, vuln.key.name, vuln.key.version
+                ),
+            ));
         }
     }
     findings
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct OsvKey {
+    id: String,
+    ecosystem: String,
+    name: String,
+    version: String,
+}
+
+#[derive(Debug, Clone)]
+struct OsvVulnerability {
+    key: OsvKey,
+    summary: String,
+}
+
+fn scan_osv_content(content: &str, original_path: &str) -> Option<Vec<OsvVulnerability>> {
+    let dir = tempdir().ok()?;
+    let name = Path::new(original_path).file_name()?;
+    let path = dir.path().join(name);
+    let mut file = std::fs::File::create(&path).ok()?;
+    file.write_all(content.as_bytes()).ok()?;
+    scan_osv_lockfile(&path)
+}
+
+fn scan_osv_lockfile(path: &Path) -> Option<Vec<OsvVulnerability>> {
+    let out = Command::new("osv-scanner")
+        .args(["--format", "json", "--lockfile"])
+        .arg(path)
+        .output()
+        .ok()?;
+    parse_osv(&out.stdout)
+}
+
+fn parse_osv(bytes: &[u8]) -> Option<Vec<OsvVulnerability>> {
+    let doc: Value = serde_json::from_slice(bytes).ok()?;
+    let mut out = Vec::new();
+    for result in doc.get("results").and_then(|r| r.as_array()).into_iter().flatten() {
+        for pkg in result.get("packages").and_then(|p| p.as_array()).into_iter().flatten() {
+            let package = pkg.get("package");
+            let name = package.and_then(|p| p.get("name")).and_then(|v| v.as_str()).unwrap_or("dependency");
+            let ecosystem = package.and_then(|p| p.get("ecosystem")).and_then(|v| v.as_str()).unwrap_or("unknown");
+            let version = package.and_then(|p| p.get("version")).and_then(|v| v.as_str()).unwrap_or("unknown");
+            for vuln in pkg.get("vulnerabilities").and_then(|v| v.as_array()).into_iter().flatten() {
+                let id = vuln.get("id").and_then(|v| v.as_str()).unwrap_or("VULN");
+                let summary = vuln.get("summary").and_then(|v| v.as_str()).unwrap_or("Known vulnerability");
+                out.push(OsvVulnerability {
+                    key: OsvKey {
+                        id: id.to_string(),
+                        ecosystem: ecosystem.to_string(),
+                        name: name.to_string(),
+                        version: version.to_string(),
+                    },
+                    summary: summary.to_string(),
+                });
+            }
+        }
+    }
+    Some(out)
+}
+
+fn only_new_osv(head: Vec<OsvVulnerability>, base: &HashSet<OsvKey>) -> Vec<OsvVulnerability> {
+    head.into_iter().filter(|v| !base.contains(&v.key)).collect()
 }
 
 fn is_lockfile(path: &str) -> bool {
@@ -357,4 +421,47 @@ fn is_lockfile(path: &str) -> bool {
             | "go.sum"
             | "requirements.txt"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vuln(id: &str, name: &str, version: &str) -> OsvVulnerability {
+        OsvVulnerability {
+            key: OsvKey {
+                id: id.into(),
+                ecosystem: "npm".into(),
+                name: name.into(),
+                version: version.into(),
+            },
+            summary: "advisory".into(),
+        }
+    }
+
+    #[test]
+    fn parses_osv_results_with_package_identity() {
+        let json = br#"{"results":[{"packages":[{
+          "package":{"name":"esbuild","version":"0.24.2","ecosystem":"npm"},
+          "vulnerabilities":[{"id":"GHSA-test","summary":"test advisory"}]
+        }]}]}"#;
+        let parsed = parse_osv(json).expect("valid osv json");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].key, vuln("GHSA-test", "esbuild", "0.24.2").key);
+    }
+
+    #[test]
+    fn keeps_only_vulnerability_tuples_absent_from_base() {
+        let existing = vuln("GHSA-old", "pkg", "1.0.0");
+        let introduced = vuln("GHSA-new", "other", "2.0.0");
+        let base = HashSet::from([existing.key.clone()]);
+        let kept = only_new_osv(vec![existing, introduced.clone()], &base);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].key, introduced.key);
+    }
+
+    #[test]
+    fn package_version_is_part_of_osv_identity() {
+        assert_ne!(vuln("GHSA-test", "pkg", "1.0.0").key, vuln("GHSA-test", "pkg", "1.1.0").key);
+    }
 }
