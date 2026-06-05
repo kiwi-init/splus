@@ -11,7 +11,6 @@ vibes, runs a real **review protocol** (detect → impact → triage → remedia
 the grounding; your agent does the reviewing. No account, no token, nothing leaves your machine.
 
 [![CI](https://github.com/kiwi-init/splus/actions/workflows/ci.yml/badge.svg)](https://github.com/kiwi-init/splus/actions/workflows/ci.yml)
-[![Splus self-review](https://github.com/kiwi-init/splus/actions/workflows/splus-review.yml/badge.svg)](https://github.com/kiwi-init/splus/actions/workflows/splus-review.yml)
 
 </div>
 
@@ -75,19 +74,38 @@ your editor is the reviewer.
 
 Your agent connects to the local server and calls these:
 
-| Tool        | What it does                                                                |
-| ----------- | --------------------------------------------------------------------------- |
-| `review`    | Review `working` / `staged` / `base..HEAD` / whole-repo (`all`) changes.     |
-| `dismiss`   | Teach Splus a finding is noise — it generalizes to close variants.           |
-| `accept`    | Teach Splus a finding was real — it reinforces close variants going forward.  |
-| `mute`      | Mute an entire rule for this repo.                                           |
-| `learnings` | List what's been learned on this repo.                                       |
-| `index`     | Build a SCIP index locally for the precise (compiler-grade) blast-radius tier. |
+| Tool          | What it does                                                                |
+| ------------- | --------------------------------------------------------------------------- |
+| `review`      | Read `splus.md`, return the deterministic floor + a directive, drive the review. |
+| `inspect`     | The engine **on tap**: `definition` · `callers` · `blast_radius` · `complexity` · `exports` · `imports` — investigate on demand. |
+| `floor`       | Re-ground on the deterministic finding floor for a scope (no directive).    |
+| `preferences` | Show the merged `splus.md` contract (repo + `~/.splus`).                     |
+| `recall`      | Surface past confirmed findings / conventions relevant to a hunk.           |
+| `note`        | Remember a repo convention you discovered (→ `recall`).                      |
+| `dismiss`     | Teach Splus a finding is noise — it generalizes to close variants.          |
+| `accept`      | Teach Splus a finding was real — reinforces, and becomes recallable.        |
+| `mute`        | Mute an entire rule for this repo.                                          |
+| `learnings`   | List what's been learned on this repo.                                      |
+| `report`      | Render the review as a standalone offline HTML report.                      |
+| `index`       | Build a SCIP index locally for the precise (compiler-grade) blast-radius tier. |
 
-One flow: `review` returns the grounded deterministic floor plus a directive that drives your agent
-through the full protocol (triage → discover → verify) over the changed code. No API key, ever — the
-model already in your editor does the reasoning. Learnings (both `dismiss` and `accept`) are stored
-per-repo in `.splus-cache/learnings.json` — they stay in your checkout.
+Agent-led, one flow: `review` injects the repo's `splus.md` contract and returns the grounded
+deterministic floor; **you** drive the review — pull signal on demand with `inspect`, verify before
+posting, then `report` and teach. No API key, ever — the model already in your editor does the
+reasoning. Learnings stay per-repo in `.splus-cache/` (suppressions in `learnings.json`, memory in
+`memory.json`) — they never leave your checkout.
+
+### `splus.md` — the repo's review contract
+
+Drop a `splus.md` at the repo root (layered over your personal `~/.splus/splus.md`). Splus reads it
+**first** on every review: prose preferences/nits guide the reviewer, and binding `mute: <ruleId>` /
+`skip: <glob>` lines drop matching findings (and say so — never silently). The `prefs` skill scaffolds one.
+
+### Skills
+
+The `skills/` bundle drives the agent-led flow: `review` (fans out **fresh, unbiased sub-agents** per
+unit — finder ≠ verifier — and degrades to a sequential pass where sub-agents aren't available) and
+`prefs` (author `splus.md`).
 
 **Full reference: [`docs/TOOLS.md`](docs/TOOLS.md)** — every tool, parameter, and return shape.
 

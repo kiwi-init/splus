@@ -181,6 +181,52 @@ export async function runEngine(opts: RunOptions): Promise<Report> {
   return Report.parse(parsed);
 }
 
+/** The on-demand questions the engine answers via `inspect`. */
+export type InspectKind =
+  | "definition"
+  | "callers"
+  | "blast_radius"
+  | "complexity"
+  | "exports"
+  | "imports";
+
+export interface InspectOptions {
+  root: string;
+  kind: InspectKind;
+  /** Symbol name (definition/callers/blast_radius) or file path (complexity/exports/imports). */
+  target: string;
+  /** Pin the defining file for a symbol query (disambiguates same-named symbols). */
+  file?: string;
+  enginePath?: string;
+}
+
+/**
+ * The engine "on tap": answer one code-intelligence question as parsed JSON.
+ * Mirrors `runEngine`'s honest failure handling (surface engine stderr, never a
+ * cryptic JSON-parse error).
+ */
+export async function inspect(opts: InspectOptions): Promise<unknown> {
+  const bin = resolveEngine(opts.enginePath);
+  const args = [
+    "inspect",
+    "--root",
+    resolve(opts.root),
+    "--kind",
+    opts.kind,
+    "--target",
+    opts.target,
+    ...(opts.file ? ["--file", opts.file] : []),
+  ];
+  const { stdout, stderr, code } = await exec(bin, args);
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    throw new Error(
+      `splus-engine inspect failed (exit ${code}): ${stderr.trim() || stdout.slice(0, 200) || "no output"}`,
+    );
+  }
+}
+
 /** Stream the engine's pretty output straight to this process (CLI default). */
 export function runEnginePretty(opts: RunOptions & { failOn?: string; noColor?: boolean }): Promise<number> {
   const bin = resolveEngine(opts.enginePath);
@@ -254,3 +300,6 @@ export function exceedsThreshold(report: Report, failOn: Severity): boolean {
   const t = severityRank(failOn);
   return report.findings.some((f) => severityRank(f.severity) >= t);
 }
+
+// The per-repo review contract (`splus.md`): loader + binding policy.
+export * from "./splusMd.js";

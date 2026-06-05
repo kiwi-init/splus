@@ -21,13 +21,18 @@
  *   SPLUS_ENGINE  path to the splus-engine binary (else auto-resolved / PATH)
  *
  * Tools:
- *   review     — review staged / working / base..HEAD / whole-repo changes
- *   report     — render the review as a standalone offline HTML report (final step)
- *   dismiss    — teach Splus a finding is noise (generalizes semantically)
- *   accept     — teach Splus a finding was real (reinforces close variants)
- *   mute       — mute an entire rule for this repo
- *   learnings  — list what's been learned on this repo
- *   index      — build a SCIP index for the precise blast-radius tier
+ *   review      — review staged / working / base..HEAD / whole-repo changes (reads splus.md)
+ *   inspect     — the engine on tap: definition / callers / blast_radius / complexity / exports / imports
+ *   floor       — re-ground on the deterministic finding floor for a scope (no directive)
+ *   preferences — show the merged splus.md contract (repo + ~/.splus)
+ *   report      — render the review as a standalone offline HTML report (final step)
+ *   dismiss     — teach Splus a finding is noise (generalizes semantically)
+ *   accept      — teach Splus a finding was real (reinforces + stores recallable memory)
+ *   note        — remember a discovered repo convention (→ recall)
+ *   recall      — surface confirmed findings / conventions relevant to a hunk
+ *   mute        — mute an entire rule for this repo
+ *   learnings   — list what's been learned on this repo
+ *   index       — build a SCIP index for the precise blast-radius tier
  *
  * Protocol note: on a stdio transport, stdout IS the MCP channel. Everything
  * human-facing goes to stderr or into a tool result — we never touch stdout.
@@ -36,10 +41,22 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { listChangedFiles, runEngine, type DiffMode, type Finding, type Report } from "@splus/shared";
+import {
+  applyPolicy,
+  inspect as engineInspect,
+  listChangedFiles,
+  loadSplusConfig,
+  runEngine,
+  type DiffMode,
+  type Finding,
+  type InspectKind,
+  type Report,
+  type SplusConfig,
+} from "@splus/shared";
 import {
   applySuppression,
   candidateText,
+  FileMemoryStore,
   FileSuppressionStore,
   type SuppressedFinding,
 } from "@splus/suppression";
@@ -60,15 +77,15 @@ const VERSION = typeof __SPLUS_VERSION__ !== "undefined" ? __SPLUS_VERSION__ : "
  * driver, never ask about an API key" contract has to live: a directive inside
  * a tool *result* arrives too late to stop the agent from asking the user first.
  */
-const SERVER_INSTRUCTIONS = `Splus turns the coding agent already in this session into a disciplined, precision-first code reviewer. There is ONE way to use it and you are the driver — the review is agent-driven and needs NO API key.
+const SERVER_INSTRUCTIONS = `Splus turns the coding agent already in this session into a disciplined, precision-first code reviewer. You are the reviewer in the chair — the engine is yours to interrogate, not a list to relay. There is no API key and no clock: curiosity and verification are the job, and a wrong comment costs more than a slow review.
 
 When the user asks you to review code:
-1. Call \`review\` (mode: working/staged/base/all; add precise:true for compiler-grade blast radius). Do NOT ask whether to run a "deterministic-only" review, and do NOT ask about an ANTHROPIC_API_KEY — neither exists in this flow; the complete review requires neither.
-2. The result gives you the deterministic FLOOR of findings plus a directive. Execute it: read the changed files and run the protocol yourself — TRIAGE each finding (keep/suppress), DISCOVER what determinism missed (logic / security / intent / concurrency), and VERIFY every finding you would post by trying to refute it against the cited line. Drop anything you can't defend — a wrong comment costs more than a missed nit.
-3. Report the survivors as must-fix / concern / nit with file:line and a concrete fix. Don't just relay the engine's findings — running the protocol IS the review.
-4. Teach the repo as you go: \`dismiss <id>\` when a finding is noise, \`accept <id>\` when it was real.
+1. \`review\` (mode: working/staged/base/all; precise:true for compiler-grade blast radius). It reads the repo's \`splus.md\` contract (its preferences + binding nits — honor them; they come first), returns the deterministic FLOOR of findings, and hands you a directive. Do NOT ask about a "deterministic-only" mode or an ANTHROPIC_API_KEY — neither exists here.
+2. INVESTIGATE, don't triage a list. The floor is grounding; the review is what you find. Pull deterministic signal on demand with \`inspect\` (kind: definition | callers | blast_radius | complexity | exports | imports) — when an export looks risky, open its callers and confirm the blast radius; recurse when something smells off. Use \`floor\` to re-ground a file subset. Read the changed code for what determinism can't see: logic, security, intent, concurrency.
+3. VERIFY every finding by trying to refute it against the cited line. Drop any you can't defend. Then REPORT survivors as must-fix / concern / nit with file:line and a concrete fix.
+4. TEACH the repo: \`dismiss <id>\` for noise, \`accept <id>\` for real, \`note\` to record a convention. \`preferences\` shows the active \`splus.md\`; \`recall\` surfaces what was learned here before.
 
-Other tools: \`mute\` silences a rule for this repo, \`learnings\` lists what's been taught, \`index\` builds a SCIP index for precise blast radius.`;
+Other tools: \`report\` renders the offline HTML deliverable, \`mute\` silences a rule, \`learnings\` lists what's been taught, \`index\` builds a SCIP index for precise blast radius.`;
 
 const server = new McpServer({ name: "splus", version: VERSION }, { instructions: SERVER_INSTRUCTIONS });
 
@@ -92,6 +109,11 @@ function fail(text: string): CallToolResult {
 /** The repo-local learned-suppression store (one file per repo). */
 function learningsPath(root: string): string {
   return join(root, ".splus-cache", "learnings.json");
+}
+
+/** The repo-local compounding-memory store (one file per repo). */
+function memoryPath(root: string): string {
+  return join(root, ".splus-cache", "memory.json");
 }
 
 function toMode(mode: ReviewMode, base: string | null): DiffMode {
@@ -176,6 +198,36 @@ function toAgentReport(report: Report, suppressed: SuppressedFinding[]) {
   };
 }
 
+/**
+ * The `splus.md` contract block, prepended to the review so the agent reads the
+ * repo's standing preferences BEFORE planning — and an honest record of any
+ * finding the binding `mute:`/`skip:` rules dropped (never silent).
+ */
+function prefsBlock(cfg: SplusConfig, dropped: { ruleId: string; file: string; reason: string }[]): string {
+  const lines: string[] = ["=== splus.md · the repo's review contract (read first) ==="];
+  if (cfg.source === "none") {
+    lines.push(
+      "No splus.md found. Reviewing with engine defaults. If the user has standing preferences or",
+      "repo nits, offer to scaffold one (the `prefs` skill) — it makes the next review serve their taste.",
+    );
+  } else {
+    lines.push(
+      `These are standing preferences (${cfg.source}); they override engine defaults and your own taste:`,
+      "",
+      cfg.raw.trim(),
+    );
+  }
+  if (dropped.length) {
+    lines.push(
+      "",
+      `Dropped by splus.md policy (${dropped.length}): ` +
+        dropped.map((d) => `${d.ruleId}@${d.file} (${d.reason})`).join("; "),
+    );
+  }
+  lines.push("=== end splus.md ===");
+  return lines.join("\n");
+}
+
 function summaryLine(report: Report, suppressedCount: number): string {
   const s = report.summary;
   const supp = suppressedCount > 0 ? ` · ${suppressedCount} suppressed by learnings` : "";
@@ -196,19 +248,19 @@ function discoveryDirective(files: string[]): string {
     (shown.map((f) => `  - ${f}`).join("\n") || "  (no changed files)") +
     (more > 0 ? `\n  …and ${more} more` : "");
   return [
-    "=== Splus · you are the reviewer (one flow — no API key) ===",
-    "The findings above are the DETERMINISTIC FLOOR — high-precision, each anchored to a pattern, metric, or cross-file graph edge. They are NOT the review. You are the senior reviewer in the chair: run the full protocol over the changed code yourself.",
+    "=== Splus · you are the reviewer (one flow — no API key, no clock) ===",
+    "The findings above are the DETERMINISTIC FLOOR — high-precision, each anchored to a pattern, metric, or cross-file graph edge. They are NOT the review. You are the senior reviewer in the chair, seeing this code for the first time: run the full protocol over the changed code yourself. Take the time it takes — curiosity is the job.",
     "",
     "Changed files:",
     list,
     "",
     "1. TRIAGE — for each finding above, decide keep vs suppress. Optimize for signal: suppress test fixtures, idiomatic patterns for the file's role, and pure style; keep what a senior reviewer would genuinely want fixed before merge. A noisy comment costs more than a missed nit.",
-    "2. DISCOVER — read the changed code and find what determinism cannot, each grounded in a line that exists:",
+    "2. DISCOVER — read the changed code and find what determinism cannot. Don't guess — INTERROGATE THE ENGINE with `inspect` (kind: definition | callers | blast_radius | complexity | exports | imports); when a hunk smells off, open its callers and confirm the blast radius before you move on. Each finding must be grounded in a line that exists:",
     "   • correctness — off-by-one, missing await / unhandled error path, wrong condition, null/undefined deref, resource leak, broken invariant",
     "   • security — injection / path-traversal / SSRF reachable from input, authz/IDOR gaps, unsafe deserialization, secret & credential handling, command or eval",
     "   • intent — does the code do what its name, comments, and the change claim? dead, contradictory, or silently fail-open logic",
     "   • failure & concurrency — races, partial writes, retries, fail-open where it must fail-closed",
-    "   • blast radius — for any changed export with callers (see findings above), open each call site and confirm it still holds",
+    "   • blast radius — for any changed export, `inspect callers` / `inspect blast_radius` and open each call site to confirm it still holds",
     "3. VERIFY — before posting anything, re-read each candidate's cited line and try to REFUTE it. Drop any you can't defend (already handled nearby, speculative, the line doesn't actually demonstrate it). A wrong comment costs more than a missed nit.",
     "4. REPORT — the survivors as must-fix / concern / nit with file:line and a concrete fix. Never invent a finding; every claim cites a real line.",
     "5. TEACH — `dismiss <id>` when the user agrees something is noise, `accept <id>` when they act on a real one — Splus learns this repo both ways.",
@@ -334,6 +386,13 @@ server.registerTool(
       );
     }
 
+    // The repo contract (`splus.md`): inject its prose, enforce its binding
+    // `mute:`/`skip:` rules. This runs BEFORE learned suppression so a stated
+    // preference always wins over the engine's defaults.
+    const cfg = loadSplusConfig(repo);
+    const policy = applyPolicy(report.findings, cfg);
+    report = withFindings(report, policy.kept, report.summary.suppressed);
+
     // Learned suppression (on by default): drop findings already dismissed on
     // this repo (exact, rule-mute, or semantically similar). Best-effort.
     let suppressed: SuppressedFinding[] = [];
@@ -357,10 +416,121 @@ server.registerTool(
 
     const payload = toAgentReport(report, suppressed);
     const body = `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(payload, null, 2)}${reinforcedNote}${preciseNote}`;
-    // The handoff, and the whole product: ground the agent with the deterministic
-    // floor, then drive it through the protocol. The directive is ALWAYS appended
-    // — there is no other path, no key, no headless mode to choose between.
-    return ok(`${body}\n\n${discoveryDirective(listChangedFiles(repo, dmode))}`);
+    // The handoff, and the whole product: read the repo contract first, ground the
+    // agent with the deterministic floor, then drive it through the protocol. The
+    // directive is ALWAYS appended — there is no other path, no key, no headless
+    // mode to choose between.
+    return ok(
+      `${prefsBlock(cfg, policy.dropped)}\n\n${body}\n\n${discoveryDirective(listChangedFiles(repo, dmode))}`,
+    );
+  },
+);
+
+// --- inspect (the engine on tap) -------------------------------------------
+
+server.registerTool(
+  "inspect",
+  {
+    title: "Inspect code intelligence on demand",
+    description:
+      "The engine ON TAP — ask ONE deterministic question instead of triaging a list. Use it to " +
+      "investigate while you review: when a changed export looks risky, pull its callers and blast " +
+      "radius and open the call sites; recurse when a hunk smells off. Local, instant, grounded. " +
+      "Kinds: 'definition' (where a symbol is defined), 'callers' (files importing it), " +
+      "'blast_radius' (full cross-file impact, SCIP-precise when an index exists else the name " +
+      "heuristic), 'complexity' (cognitive complexity per function in a file), 'exports' / 'imports' " +
+      "(a file's surface). `target` is a SYMBOL for definition/callers/blast_radius and a FILE PATH " +
+      "for complexity/exports/imports. Resolution is JS/TS-aware; non-JS/TS symbols return an honest " +
+      "empty answer.",
+    inputSchema: {
+      kind: z
+        .enum(["definition", "callers", "blast_radius", "complexity", "exports", "imports"])
+        .describe("Which question to ask."),
+      target: z
+        .string()
+        .describe("Symbol name (definition/callers/blast_radius) or file path (complexity/exports/imports)."),
+      file: z
+        .string()
+        .optional()
+        .describe("Pin the defining file for a symbol query (disambiguates same-named symbols)."),
+      root: z.string().optional().describe("Repo root (default: server CWD)."),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  async ({ kind, target, file, root }) => {
+    try {
+      const value = await engineInspect({ root: rootOf(root), kind: kind as InspectKind, target, file });
+      return ok(JSON.stringify(value, null, 2));
+    } catch (e) {
+      return fail(`inspect failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  },
+);
+
+// --- floor (re-ground on the deterministic findings) -----------------------
+
+server.registerTool(
+  "floor",
+  {
+    title: "Re-ground on the deterministic finding floor",
+    description:
+      "Return the engine's deterministic finding FLOOR for a scope as JSON — the same grounded set " +
+      "`review` starts from, but without the directive. Use it to re-check a file subset or a " +
+      "different scope mid-investigation. The repo's `splus.md` binding rules are applied; learned " +
+      "suppression is not (this is the raw floor).",
+    inputSchema: {
+      root: z.string().optional().describe("Repo root (default: server CWD)."),
+      mode: z
+        .enum(["working", "staged", "base", "all"])
+        .optional()
+        .describe("Scope (default 'working')."),
+      base: z.string().optional().describe("Base git ref — used when mode='base'."),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  async ({ root, mode, base }) => {
+    const repo = rootOf(root);
+    const m = (mode ?? "working") as ReviewMode;
+    if (m === "base" && !base) return fail("mode='base' requires a `base` ref.");
+    try {
+      const report = await runEngine({ root: repo, mode: toMode(m, base ?? null) });
+      const cfg = loadSplusConfig(repo);
+      const policy = applyPolicy(report.findings, cfg);
+      const filtered = withFindings(report, policy.kept, report.summary.suppressed);
+      return ok(JSON.stringify(toAgentReport(filtered, []), null, 2));
+    } catch (e) {
+      return fail(`Could not run the Splus engine: ${e instanceof Error ? e.message : String(e)}.`);
+    }
+  },
+);
+
+// --- preferences (the splus.md contract) -----------------------------------
+
+server.registerTool(
+  "preferences",
+  {
+    title: "Show the active splus.md contract",
+    description:
+      "Return the merged `splus.md` review contract for this repo (repo `./splus.md` layered over " +
+      "`~/.splus/splus.md`), including its binding `mute:`/`skip:` rules. This is the repo's standing " +
+      "preferences + nits — `review` already injects it, but call this to read it directly.",
+    inputSchema: {
+      root: z.string().optional().describe("Repo root (default: server CWD)."),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  async ({ root }) => {
+    const cfg = loadSplusConfig(rootOf(root));
+    if (cfg.source === "none") {
+      return ok(
+        "No splus.md found (repo root or ~/.splus/splus.md). Reviewing with engine defaults — the " +
+          "`prefs` skill scaffolds one so the next review serves the repo's taste.",
+      );
+    }
+    return ok(
+      `splus.md (${cfg.source})\nmuted rules: ${cfg.mutedRules.join(", ") || "—"}\n` +
+        `skip paths: ${cfg.skipPaths.join(", ") || "—"}\n\n${cfg.raw.trim()}`,
+    );
   },
 );
 
@@ -488,16 +658,21 @@ server.registerTool(
       }
     }
 
+    const memText = text ?? (found ? candidateText(found) : "");
     await store.record({
       fingerprint: id,
       rule_id: found?.rule_id ?? ruleId ?? "unknown",
-      text: text ?? (found ? candidateText(found) : ""),
+      text: memText,
       scope: "fingerprint",
       signal: "accepted",
     });
+    // Also store it as compounding memory so future reviews can `recall` it.
+    if (memText) {
+      await new FileMemoryStore(memoryPath(repo)).remember({ kind: "accepted", text: memText });
+    }
 
     return ok(
-      `Accepted ${id}. Splus will reinforce findings like this one on this repo going forward.`,
+      `Accepted ${id}. Splus will reinforce findings like this one — and \`recall\` it on future reviews.`,
     );
   },
 );
@@ -548,6 +723,59 @@ server.registerTool(
       return ok("No learnings yet. Use the `dismiss` or `mute` tools to teach this repo.");
     }
     return ok(JSON.stringify(entries, null, 2));
+  },
+);
+
+// --- recall (compounding memory) -------------------------------------------
+
+server.registerTool(
+  "recall",
+  {
+    title: "Recall what was learned here before",
+    description:
+      "Surface past confirmed-real findings (`accept`) and discovered conventions (`note`) most " +
+      "relevant to a hunk, symbol, or question — so a reviewer's diligence compounds across sessions " +
+      "instead of starting cold. Semantic (embedding) match over .splus-cache/memory.json. Call it " +
+      "while investigating a risky area: 'have we been burned here before?'",
+    inputSchema: {
+      root: z.string().optional().describe("Repo root (default: server CWD)."),
+      query: z.string().describe("A hunk, symbol, error, or question to recall memories for."),
+      limit: z.number().optional().describe("Max memories to return (default 5)."),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  async ({ root, query, limit }) => {
+    const store = new FileMemoryStore(memoryPath(rootOf(root)));
+    const hits = await store.recall(query, { limit });
+    if (!hits.length) {
+      return ok("No relevant memories yet. Use `accept` on real findings and `note` for conventions to build them.");
+    }
+    return ok(JSON.stringify(hits, null, 2));
+  },
+);
+
+// --- note (teach the repo a convention) ------------------------------------
+
+server.registerTool(
+  "note",
+  {
+    title: "Record a convention the review discovered",
+    description:
+      "Remember a repo convention or context you discovered while reviewing (e.g. 'this module uses " +
+      "Result<T,E>, never throws' or 'auth/ requires every handler to call requireSession first'), so " +
+      "future reviews `recall` it. Complements `accept` (which remembers confirmed findings). Written " +
+      "to .splus-cache/memory.json; promotable into splus.md for a binding rule.",
+    inputSchema: {
+      root: z.string().optional().describe("Repo root (default: server CWD)."),
+      text: z.string().describe("The convention/context to remember, in one sentence."),
+      file: z.string().optional().describe("The file/area this convention applies to, if specific."),
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true },
+  },
+  async ({ root, text, file }) => {
+    const store = new FileMemoryStore(memoryPath(rootOf(root)));
+    await store.remember({ kind: "note", text, file });
+    return ok(`Noted. Splus will recall this on future reviews of this repo. (Promote it into splus.md to make it a binding rule.)`);
   },
 );
 
@@ -654,7 +882,7 @@ async function main(): Promise<void> {
   await server.connect(transport);
   process.stderr.write(
     "splus-mcp ready (stdio) — local engine, no network · you are the reviewer; " +
-      "tools: review, report, dismiss, accept, mute, learnings, index\n",
+      "tools: review, inspect, floor, preferences, report, dismiss, accept, note, recall, mute, learnings, index\n",
   );
 }
 

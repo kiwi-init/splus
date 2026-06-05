@@ -1,6 +1,6 @@
 {
   "name": "splus",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "private": true,
   "description": "Splus — the precision-first, local-first code reviewer. A deterministic Rust engine your coding agent (Claude Code, Codex, OpenCode) calls over MCP. Open source, runs entirely on your machine.",
   "license": "MIT",

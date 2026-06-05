@@ -70,19 +70,28 @@ impl RepoGraph {
         }
         let base = segs.join("/");
 
-        if self.files.contains(&base) {
-            return Some(base);
-        }
-        for ext in EXTS {
-            let cand = format!("{base}{ext}");
-            if self.files.contains(&cand) {
-                return Some(cand);
+        // TS ESM commonly imports the *compiled* `.js` path for a `.ts` source
+        // (`import … from "./embed.js"`). Try the source-extension forms of any
+        // js-family specifier too, then the literal path.
+        let stems: Vec<&str> = match base.rsplit_once('.') {
+            Some((stem, "js" | "jsx" | "mjs" | "cjs")) => vec![stem, base.as_str()],
+            _ => vec![base.as_str()],
+        };
+        for stem in stems {
+            if self.files.contains(stem) {
+                return Some(stem.to_string());
             }
-        }
-        for ext in EXTS {
-            let cand = format!("{base}/index{ext}");
-            if self.files.contains(&cand) {
-                return Some(cand);
+            for ext in EXTS {
+                let cand = format!("{stem}{ext}");
+                if self.files.contains(&cand) {
+                    return Some(cand);
+                }
+            }
+            for ext in EXTS {
+                let cand = format!("{stem}/index{ext}");
+                if self.files.contains(&cand) {
+                    return Some(cand);
+                }
             }
         }
         None
@@ -225,6 +234,17 @@ mod tests {
         assert!(info.crosses_api); // src/api/login.ts is an API boundary
         // app.ts imports authn (a direct caller) → transitive.
         assert!(info.transitive >= 1);
+    }
+
+    #[test]
+    fn resolves_ts_esm_dot_js_imports() {
+        // ESM/NodeNext TS imports the compiled `.js` path for a `.ts` source.
+        let g = graph_from(&[
+            ("packages/x/src/embed.ts", "export function hashEmbedder(){ return 1; }"),
+            ("packages/x/src/index.ts", "import { hashEmbedder } from './embed.js';\nhashEmbedder();"),
+        ]);
+        let info = g.callers_of("hashEmbedder", "packages/x/src/embed.ts");
+        assert_eq!(info.direct, vec!["packages/x/src/index.ts".to_string()]);
     }
 
     #[test]

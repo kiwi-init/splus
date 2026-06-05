@@ -5,6 +5,44 @@ this project uses [semantic versioning](https://semver.org) (pre-1.0: minor vers
 
 ## [Unreleased]
 
+## [0.9.0] — agent-led: the engine on tap
+
+Splus flips from engine-*led* (push a finding list through a gate) to agent-*led*
+(a curious reviewer pulls deterministic signal on demand). The engine becomes a
+toolbelt, a per-repo contract is read first, and a reviewer's diligence compounds.
+
+### Added
+- **`inspect` — the engine on tap.** Ask one deterministic question instead of
+  triaging a list: `definition` / `callers` / `blast_radius` / `complexity` /
+  `exports` / `imports`. New engine `inspect` subcommand reusing the existing
+  analysis tier (graph, symbols, SCIP, complexity); exposed as an MCP tool so the
+  reviewer can investigate — open call sites, confirm blast radius, recurse on a
+  smell — rather than relay the floor.
+- **`floor` tool** — re-ground on the deterministic finding set for any scope,
+  without the directive.
+- **`splus.md` — the repo's review contract, read first.** A human-authored file
+  (`./splus.md` layered over `~/.splus/splus.md`): prose preferences/nits injected
+  into the reviewer, plus **binding** `mute:`/`skip:` rules enforced at review
+  time (matching findings dropped and reported, never silently). New `preferences`
+  tool + a `prefs` skill to author it.
+- **Compounding memory.** `note` records a discovered convention; `accept` now also
+  stores a recallable memory; `recall` surfaces past confirmed findings and
+  conventions relevant to a hunk (embedding match over `.splus-cache/memory.json`,
+  on the existing `Embedder` seam).
+- **Skill bundle** (`skills/`): a `review` orchestrator playbook that fans out
+  **fresh, unbiased sub-agents** per unit (finder ≠ verifier) and degrades to a
+  sequential pass on hosts without sub-agents; plus `investigate` / `lenses` /
+  `verify` / `dispatch` references and the `prefs` skill.
+
+### Changed
+- **`review` now orients instead of just answering** — it injects the `splus.md`
+  contract, enforces its binding rules, returns the floor, and drives the agent
+  through investigate → verify → report → teach with the toolbelt. Backward
+  compatible (the floor is still returned).
+- **Import resolution understands TS ESM `.js` specifiers** (`import … from
+  "./x.js"` for an `x.ts` source), so callers / blast radius resolve on modern
+  TypeScript codebases — improving the existing blast-radius collector too.
+
 ## [0.8.1] — splus reviews splus
 
 A patch release of precision and honesty fixes surfaced by running a full

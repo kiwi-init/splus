@@ -6,6 +6,7 @@
 pub mod analysis;
 pub mod collectors;
 pub mod diff;
+pub mod inspect;
 pub mod model;
 pub mod pipeline;
 pub mod render;

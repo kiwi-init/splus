@@ -45,3 +45,4 @@ tree-sitter-bash = "0.25"
 prost = "0.13"
 
 [dev-dependencies]
+tempfile = "3"
