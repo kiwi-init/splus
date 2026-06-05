@@ -50,9 +50,14 @@ fix, and cross-file **blast radius**. Learned suppressions are applied first.
 There is **one flow** and you are the driver: the response begins with the repo's
 [`SPLUS.md`](#preferences) contract (preferences injected, binding `mute:`/`skip:`
 rules already enforced) and ends with a **discovery directive** that drives *you*
-(the agent) through the full protocol (triage → investigate → verify) over the
-changed files. No API key — Splus grounds you with precise anchors and a toolbelt
-(`inspect`, `floor`, `recall`); you do the reasoning. Run the protocol; don't relay.
+(the agent) through the full protocol (triage → trace contracts → investigate →
+verify) over the changed files. The directive includes a deterministic
+**CHANGED SYMBOLS** block — the exported symbols whose bodies the diff touches
+(engine tree-sitter exports ∩ diff hunks) — so the contract-trace stage starts
+aimed: enumerate each one's return/throw shape on every path, open every caller,
+report every assumption that no longer holds. No API key — Splus grounds you with
+precise anchors and a toolbelt (`inspect`, `floor`, `recall`); you do the
+reasoning. Run the protocol; don't relay.
 
 | Param | Type | Default | Description |
 |---|---|---|---|

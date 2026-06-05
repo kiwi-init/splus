@@ -110,9 +110,13 @@ Drop a `SPLUS.md` at the repo root (layered over your personal `~/.splus/SPLUS.m
 
 ### Skills
 
-The `skills/` bundle drives the agent-led flow: `review` (fans out **fresh, unbiased sub-agents** per
+The `skills/` bundle IS the review protocol: `review` (fans out **fresh, unbiased sub-agents** per
 unit — finder ≠ verifier — and degrades to a sequential pass where sub-agents aren't available) and
-`prefs` (author `SPLUS.md`).
+`prefs` (author `SPLUS.md`). The installer puts them directly into every agent it finds — Claude Code
+(`~/.claude/skills/splus-review`, `splus-prefs`), Codex (`/splus-review`, `/splus-prefs` prompts),
+OpenCode (`/splus-review`, `/splus-prefs` commands) — with the canonical copy at `~/.splus/skills`,
+refreshed on every `splus update`. The protocol is loaded explicitly, never inferred from tool
+descriptions.
 
 **Full reference: [`docs/TOOLS.md`](docs/TOOLS.md)** — every tool, parameter, and return shape.
 
@@ -190,6 +194,7 @@ pulls from. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — how the engine + review protocol work (with diagrams).
 - **[docs/TOOLS.md](docs/TOOLS.md)** — the MCP tools your agent calls (every param + return).
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — build, test, and the release process.
+- **[AGENTS.md](AGENTS.md)** — working on this repo with a coding agent (build, verify, conventions).
 - **[bench/martian/](bench/martian/)** — score Splus on the independent Martian Code Review Bench.
 
 ## Repo layout
@@ -201,8 +206,10 @@ packages/
   suppression/         # per-repo memory — suppress (dismiss) + reinforce (accept)
   triage/              # benchmark harness — runs the protocol headlessly to measure it (not a usage path)
   mcp/                 # the local MCP server your agent talks to — the one and only way to use Splus
+skills/                # the review protocol as skills — installed into your agents by install.sh
 bench/                 # regression gate (run.mjs) + the Martian benchmark adapter (martian/)
 docs/                  # ARCHITECTURE.md · TOOLS.md
+AGENTS.md              # instructions for coding agents working ON this repo (CLAUDE.md imports it)
 install.sh             # the one-line installer
 ```
 

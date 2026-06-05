@@ -9,8 +9,9 @@ stand up. Start with **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the fu
 - `crates/splus-engine/` — the deterministic engine (Rust). The source of truth for findings.
 - `packages/shared/` — the canonical `Finding`/`Report` model (TS, mirrors the Rust serde model) + `runEngine`, which shells out to the engine binary.
 - `packages/suppression/` — per-repo memory: suppress (`dismiss`) + reinforce (`accept`).
-- `packages/triage/` — the optional LLM layer: the multi-pass review (detect→…→verify), downstream of the engine.
+- `packages/triage/` — the headless review pipeline, **bench-only**: it exists so the Martian benchmark can measure the protocol without a human agent. The MCP path never calls it.
 - `packages/mcp/` — the local stdio MCP server your agent connects to. Tools: see [docs/TOOLS.md](docs/TOOLS.md).
+- `skills/` — the review protocol as agent skills (`review`, `prefs`); `install.sh` installs them into Claude Code / Codex / OpenCode. A directive change in `packages/mcp` must be mirrored here, and vice versa.
 - `bench/` — `run.mjs` (the regression gate) + `martian/` (the competitive benchmark).
 
 The splus.sh marketing site lives in its own repo, [kiwi-init/splus-lp](https://github.com/kiwi-init/splus-lp).
@@ -23,8 +24,9 @@ cargo test                   # engine tests
 pnpm install
 pnpm -r build                # build the TS packages
 pnpm -r typecheck
-node --test packages/suppression/dist/*.test.js packages/triage/dist/*.test.js   # unit tests
+pnpm -r test                 # unit tests (shared + suppression + triage)
 node bench/run.mjs           # the regression gate — MUST stay green
+greenrun --plain             # the full CI, locally — must PASS before pushing
 ```
 
 Run the freshly built engine directly:
@@ -57,13 +59,15 @@ big orchestration changes so quality is measured, not asserted.
 Tag a version and push:
 
 ```sh
-git tag v0.4.1 && git push --tags
+git tag v0.9.2 && git push --tags
 ```
 
 `.github/workflows/release.yml` cross-compiles the engine for macOS/Linux (arm64 + x64),
-bundles the MCP server into a single `.cjs` file (`scripts/build-release.mjs`), and
-publishes a GitHub Release with per-platform tarballs + `SHA256SUMS`. `install.sh` pulls these
-from the stable `releases/latest/download/splus-<os>-<arch>.tar.gz` URL.
+bundles the MCP server into a single `.cjs` file (`scripts/build-release.mjs`), packages
+`skills/`, and publishes a GitHub Release with per-platform tarballs + `SHA256SUMS`.
+`install.sh` pulls these from the stable `releases/latest/download/splus-<os>-<arch>.tar.gz`
+URL. Versions bump in lockstep across all `package.json` files + `Cargo.toml`, with a
+`CHANGELOG.md` entry.
 
 ## Principles
 

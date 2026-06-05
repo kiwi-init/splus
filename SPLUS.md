@@ -1,4 +1,4 @@
-# splus.md — how the Splus repo wants to be reviewed
+# SPLUS.md — how the Splus repo wants to be reviewed
 
 Splus reviews itself. This contract is read first on every review.
 
@@ -13,6 +13,8 @@ Splus reviews itself. This contract is read first on every review.
 - Honest confidence is mandatory: a blast radius or finding must never be presented as
   more certain than its resolution method warrants.
 - Tests build fixtures in-memory or under a tempdir; they are not production paths.
+- Every change set runs `greenrun` (the full CI, locally) before it ships. Flag any work
+  presented as done without a passing greenrun.
 
 ## skip
 - skip: dist-release/**

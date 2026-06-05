@@ -5,6 +5,19 @@ this project uses [semantic versioning](https://semver.org) (pre-1.0: minor vers
 
 ## [Unreleased]
 
+### Added
+- `AGENTS.md` (canonical instructions for coding agents working on this repo —
+  layout, build/test, the greenrun verification gate, conventions, release) and
+  `CLAUDE.md` (imports it).
+
+### Changed
+- `SPLUS.md` contract: every change set must pass `greenrun` (full CI, locally)
+  before it ships — reviews flag work that skipped it.
+- Docs refreshed for skills-first delivery: ARCHITECTURE diagram drops the stale
+  `mcp → triage` edge (bench-only) and adds `skills/`; README/CONTRIBUTING cover
+  skill installation, `pnpm -r test`, and the greenrun gate; TOOLS.md documents
+  the CHANGED SYMBOLS block and the contract-trace stage.
+
 ## [0.9.2] — 2026-06-05
 
 ### Changed

@@ -8,16 +8,19 @@ Nothing leaves your machine.
 ```mermaid
 flowchart TB
     agent["🤖 Your coding agent<br/>Claude Code · Codex · OpenCode"]
+    skills["skills/<br/><i>the review protocol (installed per agent)</i>"]
     mcp["packages/mcp<br/><i>local MCP server (stdio)</i>"]
     engine["crates/splus-engine<br/><b>deterministic floor</b> (Rust)"]
-    triage["packages/triage<br/><i>multi-pass LLM review</i>"]
+    bench["bench/martian<br/><i>benchmark</i>"]
+    triage["packages/triage<br/><i>headless pipeline (bench-only)</i>"]
     supp["packages/suppression<br/><i>per-repo memory</i>"]
     shared["packages/shared<br/><i>Finding model + runEngine</i>"]
 
+    skills -.->|drives| agent
     agent <-->|MCP tools| mcp
     mcp -->|grounds with| engine
-    mcp -->|optional · key or claude -p| triage
     mcp -->|dismiss / accept| supp
+    bench -->|measures| triage
     engine --> shared
     triage --> shared
     shared -.->|spawns the binary| engine
@@ -39,7 +42,8 @@ model than the one you already run — it makes that model disciplined.
 | `packages/shared` | TS | The canonical `Finding` / `Report` model (mirrors the Rust serde model) + `runEngine`, which shells out to the binary and validates its JSON. |
 | `packages/suppression` | TS | Per-repo learned memory: suppress what you `dismiss`, reinforce what you `accept`. The compounding moat. |
 | `packages/triage` | TS | The **benchmark harness** — runs the review protocol headlessly (key or `claude -p`) so the Martian bench can measure it without a human agent. Strictly downstream of the engine. **Not a usage path** — products only ship the MCP flow. |
-| `packages/mcp` | TS | The local stdio MCP server your agent connects to — **the one and only way to use Splus**. Wires the engine + suppression together and exposes the tools. |
+| `packages/mcp` | TS | The local stdio MCP server your agent connects to — **the one and only way to use Splus**. Wires the engine + suppression together and exposes the tools. It never calls `packages/triage`. |
+| `skills/` | md | The review protocol as first-class skills. `install.sh` installs them into every detected agent (Claude Code skills, Codex prompts, OpenCode commands; canonical copy at `~/.splus/skills`) so the protocol doesn't depend on MCP tool descriptions being read. |
 
 ## The deterministic floor (the engine)
 
