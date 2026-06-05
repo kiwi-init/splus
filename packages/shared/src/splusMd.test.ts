@@ -8,7 +8,7 @@ import type { Finding } from "./index.js";
 
 function tmpRepo(splusMd?: string): string {
   const dir = mkdtempSync(join(tmpdir(), "splus-md-"));
-  if (splusMd !== undefined) writeFileSync(join(dir, "splus.md"), splusMd);
+  if (splusMd !== undefined) writeFileSync(join(dir, "SPLUS.md"), splusMd);
   return dir;
 }
 
@@ -34,7 +34,7 @@ function finding(over: Partial<Finding>): Finding {
 test("loads repo contract and parses mute/skip directives", () => {
   const repo = tmpRepo(
     [
-      "# splus.md",
+      "# SPLUS.md",
       "## nits",
       "- console.log is fine in scripts.",
       "- mute: hygiene.console-log",
@@ -47,6 +47,16 @@ test("loads repo contract and parses mute/skip directives", () => {
   assert.ok(cfg.raw.includes("console.log is fine"));
   assert.deepEqual(cfg.mutedRules, ["hygiene.console-log"]);
   assert.deepEqual(cfg.skipPaths, ["generated/**"]);
+});
+
+test("user-level contract loads from ~/.splus", () => {
+  const repo = tmpRepo();
+  const home = mkdtempSync(join(tmpdir(), "splus-home-"));
+  mkdirSync(join(home, ".splus"), { recursive: true });
+  writeFileSync(join(home, ".splus", "SPLUS.md"), "skip: vendored/**");
+  const cfg = loadSplusConfig(repo, home);
+  assert.equal(cfg.source, "user");
+  assert.deepEqual(cfg.skipPaths, ["vendored/**"]);
 });
 
 test("missing file yields an empty, non-throwing contract", () => {

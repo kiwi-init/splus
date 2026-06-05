@@ -19,7 +19,7 @@ looking for reasons it might be right; you are looking for the reason it's noise
      claim, or is it speculation about code that isn't there?
    - **Role-appropriate** — is this idiomatic and fine for this file's role (test,
      fixture, script, generated)?
-   - **Contract says so** — does `splus.md` explicitly accept this?
+   - **Contract says so** — does `SPLUS.md` explicitly accept this?
    - Use `inspect` to check: e.g. `inspect callers` to see whether a "breaking"
      change actually has any callers; `inspect definition` to see what a symbol
      truly is.

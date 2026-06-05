@@ -7,11 +7,31 @@ reviewer looking only for races finds races a generalist skims past.
 Every finding, in every lens, must cite a real changed line and survive a
 refutation. Ground it with `inspect` rather than asserting it.
 
+Spend the comment budget on the **change's own logic**. Generic best-practice
+padding — timing-safe comparison, rate limiting, header normalization, hardening
+on trusted paths — is the #1 source of review noise; raise it only when the diff
+itself clearly introduces the flaw.
+
+## Contract drift — the most-missed real-bug class
+For EVERY changed function (the `review` output lists the changed exported
+symbols deterministically — start there):
+1. **Enumerate what it returns/throws on every path** after the change — success,
+   error, missing/invalid input, each early return — with the *exact shape*:
+   object keys, wrapper types (`{success,data,error}`), `Response` vs parsed
+   body, promise vs value, sentinel/fallback values.
+2. **Open every call site** (`inspect callers`, then read each one) and state
+   what shape that caller assumes — property accesses, destructuring,
+   truthiness checks.
+3. **Report every mismatch.** One changed function often breaks several callers;
+   finding one mismatch means checking the remaining call sites, not stopping.
+
 ## Correctness
 Off-by-one and boundary errors; missing `await` / unhandled rejection; a swallowed
-or mis-handled error path; wrong condition or inverted boolean; null/undefined
-deref; resource leak (unclosed handle, unbounded growth); a broken invariant the
-surrounding code relies on; an early return that skips required cleanup.
+or mis-handled error path; wrong condition or inverted boolean; a case-sensitive
+comparison where the input's case varies; null/undefined deref; resource leak
+(unclosed handle, unbounded growth); a broken invariant the surrounding code
+relies on; an early return that skips required cleanup; validation that diverges
+between the read path and the write path.
 
 ## Security
 Injection (SQL / command / template) reachable from input; path traversal; SSRF;

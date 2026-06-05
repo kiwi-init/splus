@@ -239,7 +239,7 @@ async function main() {
       );
     } catch (e) {
       // Not persisted → retried on the next run (this is how we survive rate limits).
-      process.stderr.write(`  ⊘ ${pr.source_repo}: ${String(e.message || e).slice(0, 90)}\n`);
+      process.stderr.write(`  ⊘ ${pr.source_repo}: ${String(e.message || e).slice(0, 500)}\n`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -6,10 +6,10 @@ API key and no cloud step; the coding agent connected over stdio is the reviewer
 
 | Tool | Mutates? | What it's for |
 |---|---|---|
-| [`review`](#review) | no | Read `splus.md`, return the floor, drive the agent's review. |
+| [`review`](#review) | no | Read `SPLUS.md`, return the floor, drive the agent's review. |
 | [`inspect`](#inspect) | no | The engine **on tap** — one code-intelligence question on demand. |
 | [`floor`](#floor) | no | Re-ground on the deterministic finding floor for a scope. |
-| [`preferences`](#preferences) | no | Show the merged `splus.md` contract. |
+| [`preferences`](#preferences) | no | Show the merged `SPLUS.md` contract. |
 | [`recall`](#recall) | no | Surface confirmed findings / conventions for a hunk. |
 | [`note`](#note) | yes | Remember a discovered repo convention (→ `recall`). |
 | [`dismiss`](#dismiss) | yes | Teach Splus a finding is **noise** (suppresses close variants). |
@@ -48,7 +48,7 @@ rule id, severity, confidence, a deterministic provenance **anchor**, an optiona
 fix, and cross-file **blast radius**. Learned suppressions are applied first.
 
 There is **one flow** and you are the driver: the response begins with the repo's
-[`splus.md`](#preferences) contract (preferences injected, binding `mute:`/`skip:`
+[`SPLUS.md`](#preferences) contract (preferences injected, binding `mute:`/`skip:`
 rules already enforced) and ends with a **discovery directive** that drives *you*
 (the agent) through the full protocol (triage → investigate → verify) over the
 changed files. No API key — Splus grounds you with precise anchors and a toolbelt
@@ -112,7 +112,7 @@ return an honest empty answer.
 ## `floor`
 
 Return the engine's deterministic finding **floor** for a scope as JSON — the same
-grounded set `review` starts from, without the directive. The repo's `splus.md`
+grounded set `review` starts from, without the directive. The repo's `SPLUS.md`
 binding rules are applied; learned suppression is not. Use it to re-check a scope
 mid-investigation.
 
@@ -126,11 +126,11 @@ mid-investigation.
 
 ## `preferences`
 
-Return the merged [`splus.md`](#) review contract for this repo (`./splus.md`
-layered over `~/.splus/splus.md`), including its binding `mute:`/`skip:` rules.
+Return the merged [`SPLUS.md`](#) review contract for this repo (`./SPLUS.md`
+layered over `~/.splus/SPLUS.md`), including its binding `mute:`/`skip:` rules.
 `review` already injects it; call this to read it directly.
 
-`splus.md` is the repo's review contract, read **first** on every review: prose
+`SPLUS.md` is the repo's review contract, read **first** on every review: prose
 preferences/nits guide the reviewer; `mute: <ruleId>` and `skip: <glob>` lines are
 **binding** (matching findings are dropped and reported, never silently). The
 `prefs` skill scaffolds one.
@@ -159,7 +159,7 @@ compounds across sessions. Semantic (embedding) match over `.splus-cache/memory.
 
 Remember a repo convention you discovered while reviewing (e.g. "this module uses
 `Result<T,E>`, never throws") so future reviews `recall` it. Complements `accept`.
-Written to `.splus-cache/memory.json`; promotable into `splus.md` for a binding rule.
+Written to `.splus-cache/memory.json`; promotable into `SPLUS.md` for a binding rule.
 
 | Param | Type | Description |
 |---|---|---|

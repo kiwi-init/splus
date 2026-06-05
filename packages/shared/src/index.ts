@@ -290,6 +290,86 @@ export function listChangedFiles(root: string, mode: DiffMode): string[] {
     .filter(Boolean);
 }
 
+/**
+ * The unified diff text for a mode — the same change surface `listChangedFiles`
+ * names, as hunks. Mode `all` has no diff (the whole repo is "the change").
+ * Returns "" on any git failure: callers treat the diff as enrichment, never load-bearing.
+ */
+export function diffText(root: string, mode: DiffMode): string {
+  if (mode.kind === "all") return "";
+  if (mode.kind === "base") assertSafeRef(mode.ref);
+  const args =
+    mode.kind === "staged"
+      ? ["diff", "--cached"]
+      : mode.kind === "base"
+        ? ["diff", `${mode.ref}...HEAD`, "--"]
+        : ["diff", "HEAD"];
+  const r = spawnSync("git", args, {
+    cwd: resolve(root),
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return r.status === 0 ? (r.stdout ?? "") : "";
+}
+
+/** New-side line ranges per file from a unified diff's hunk headers. */
+export function changedLineRanges(diff: string): Map<string, Array<[number, number]>> {
+  const map = new Map<string, Array<[number, number]>>();
+  let file = "";
+  for (const line of diff.split("\n")) {
+    const f = line.match(/^\+\+\+ b\/(.+)/);
+    if (f) {
+      file = f[1] ?? "";
+      continue;
+    }
+    const h = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+    if (h && file) {
+      const start = Number(h[1]);
+      const count = h[2] !== undefined ? Number(h[2]) : 1;
+      const arr = map.get(file) ?? [];
+      arr.push([start, start + Math.max(count, 1) - 1]);
+      map.set(file, arr);
+    }
+  }
+  return map;
+}
+
+/**
+ * The diff's change surface as exported-symbol names: for each changed file, ask
+ * the engine for its exports (tree-sitter) and keep the ones whose body overlaps
+ * a diff hunk. One line per file: `path: symbolA, symbolB`. This is deterministic
+ * AIM for a reviewer — "these are the contracts the change touches; trace each
+ * into its callers." Best-effort: any engine failure just drops that file.
+ */
+export async function changedExportedSymbols(root: string, files: string[], diff: string): Promise<string[]> {
+  const ranges = changedLineRanges(diff);
+  const out: string[] = [];
+  for (const file of files) {
+    const fileRanges = ranges.get(file);
+    if (!fileRanges?.length) continue;
+    let exports: Array<{ name: string; line: number; kind: string }>;
+    try {
+      const r = (await inspect({ root, kind: "exports", target: file })) as {
+        exports?: Array<{ name: string; line: number; kind: string }>;
+      };
+      exports = (r.exports ?? []).filter((e) => e.line > 0).sort((a, b) => a.line - b.line);
+    } catch {
+      continue;
+    }
+    const touched: string[] = [];
+    for (let i = 0; i < exports.length; i++) {
+      const cur = exports[i];
+      if (!cur) continue;
+      // Approximate body span: from this export's line to just before the next.
+      const start = cur.line;
+      const end = exports[i + 1] ? exports[i + 1]!.line - 1 : Number.MAX_SAFE_INTEGER;
+      if (fileRanges.some(([a, b]) => b >= start && a <= end)) touched.push(cur.name);
+    }
+    if (touched.length) out.push(`${file}: ${touched.join(", ")}`);
+  }
+  return out;
+}
+
 /** Map our severities to a numeric rank (mirrors the engine). */
 export function severityRank(s: Severity): number {
   return { critical: 4, high: 3, medium: 2, low: 1, info: 0 }[s];
@@ -301,5 +381,5 @@ export function exceedsThreshold(report: Report, failOn: Severity): boolean {
   return report.findings.some((f) => severityRank(f.severity) >= t);
 }
 
-// The per-repo review contract (`splus.md`): loader + binding policy.
+// The per-repo review contract (`SPLUS.md`): loader + binding policy.
 export * from "./splusMd.js";

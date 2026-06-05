@@ -5,6 +5,40 @@ this project uses [semantic versioning](https://semver.org) (pre-1.0: minor vers
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-06-05
+
+### Changed
+- **`SPLUS.md` replaces `splus.md`.** The per-repo review contract is now
+  uppercase (repo root and `~/.splus/SPLUS.md`). No fallback: rename your file.
+- **Skills are installed, not just shipped.** `install.sh` now places the review
+  protocol into every detected agent — Claude Code (`~/.claude/skills/splus-review`,
+  `splus-prefs`), Codex (`~/.codex/prompts/splus-review.md`), OpenCode
+  (`~/.config/opencode/command/splus-review.md`) — with the canonical copy at
+  `~/.splus/skills`. Skills refresh on `splus update` even when MCP wiring is
+  skipped. The protocol no longer depends on agents reading MCP tool descriptions.
+- **The review directive teaches contract tracing.** `review` output now includes
+  a deterministic CHANGED SYMBOLS block (engine exports ∩ diff hunks) and a
+  TRACE CONTRACTS stage: enumerate each changed function's return/throw shape on
+  every path, open every caller, report every assumption mismatch — the
+  most-missed real-bug class on the Martian bench. A new anti-checklist clause
+  bans generic hardening nits unless the diff introduces the flaw (the #1 noise
+  source). The same disciplines are encoded in the review skill's lenses.
+
+### Added
+- `@splus/shared`: `diffText`, `changedLineRanges`, `changedExportedSymbols` —
+  deterministic change-surface extraction reused by the MCP server and the
+  benchmark pipeline.
+- Benchmark triage pipeline: a second contract-tracing discovery lens (merged +
+  deduped with the sweep lens) aimed by the CHANGED SYMBOLS block.
+
+### Fixed
+- `claude -p` CLI client now fails closed: an `is_error` result or unparseable
+  forced-tool JSON throws instead of being recorded as a zero-finding review.
+- `@splus/shared` tests are now actually wired into `pnpm -r test` (the package
+  had no test script).
+- Removed the unused `@splus/triage` dependency from `@splus/mcp` — the MCP
+  path is agent-led by design; the triage pipeline serves the benchmark only.
+
 ## [0.9.1] — 2026-06-05
 
 ### Fixed

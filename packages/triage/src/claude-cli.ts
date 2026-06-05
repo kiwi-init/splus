@@ -77,11 +77,20 @@ export function createClaudeCliClient(opts?: { defaultModel?: string }): LLMClie
           // claude CLI failed (rate limit, auth, crash). THROW rather than fail
           // open — for the benchmark this lets the caller skip + retry the PR
           // instead of recording a garbage 0-score result when limits explode.
-          throw new Error(`claude -p failed: ${(e as Error).message?.slice(0, 160)}`);
+          const err = e as Error & { stderr?: string; stdout?: string };
+          const detail = [err.message, err.stderr, err.stdout].filter(Boolean).join(" · ");
+          throw new Error(`claude -p failed: ${detail.slice(0, 600)}`);
         }
-        const res = JSON.parse(out) as { result?: string; usage?: Record<string, number> };
+        const res = JSON.parse(out) as { result?: string; is_error?: boolean; usage?: Record<string, number> };
         const text = res.result ?? "";
+        if (res.is_error) throw new Error(`claude -p errored: ${text.slice(0, 300)}`);
         const parsed = tool ? parseJsonLoose(text) : null;
+        // The pipeline always forces tool choice, so a reply without parseable tool
+        // JSON is an error — throw (fail closed) rather than hand back a text block
+        // the caller would read as "zero findings" and record as a real score.
+        if (tool && !parsed) {
+          throw new Error(`claude -p returned unparseable "${tool.name}" input: ${text.slice(0, 300)}`);
+        }
         return {
           content:
             tool && parsed ? [{ type: "tool_use", name: tool.name, input: parsed }] : [{ type: "text", text }],
