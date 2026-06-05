@@ -27,6 +27,30 @@ struct Cli {
 enum Commands {
     /// Review a diff: staged changes, all working changes, or base..HEAD.
     Review(ReviewArgs),
+    /// Inspect code intelligence on demand — the engine "on tap". Answers one
+    /// question (definition / callers / blast_radius / complexity / exports /
+    /// imports) as JSON, so the agent can investigate instead of triaging a list.
+    Inspect(InspectArgs),
+}
+
+#[derive(Args)]
+struct InspectArgs {
+    /// Repository root.
+    #[arg(long, default_value = ".")]
+    root: PathBuf,
+    /// What to ask: definition | callers | blast_radius | complexity | exports | imports.
+    #[arg(long)]
+    kind: String,
+    /// The subject: a symbol name (definition/callers/blast_radius) or a file path
+    /// (complexity/exports/imports).
+    #[arg(long)]
+    target: String,
+    /// Pin the defining file for a symbol query (disambiguates same-named symbols).
+    #[arg(long)]
+    file: Option<String>,
+    /// SCIP index for the precise blast-radius tier (else auto-detected).
+    #[arg(long)]
+    scip: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -73,7 +97,38 @@ fn main() {
                 exit(2);
             }
         },
+        Commands::Inspect(args) => match run_inspect(args) {
+            Ok(()) => exit(0),
+            Err(e) => {
+                eprintln!("splus: error: {e:#}");
+                exit(2);
+            }
+        },
     }
+}
+
+/// Auto-detect a SCIP index at the conventional locations under `root`.
+fn detect_scip(root: &PathBuf, explicit: Option<PathBuf>) -> Option<PathBuf> {
+    if let Some(p) = explicit {
+        return p.exists().then_some(p);
+    }
+    ["index.scip", ".splus-cache/index.scip"]
+        .into_iter()
+        .map(|c| root.join(c))
+        .find(|p| p.exists())
+}
+
+fn run_inspect(args: InspectArgs) -> Result<()> {
+    let scip = detect_scip(&args.root, args.scip);
+    let value = splus_engine::inspect::inspect(
+        &args.root,
+        &args.kind,
+        &args.target,
+        args.file.as_deref(),
+        scip.as_deref(),
+    )?;
+    println!("{}", serde_json::to_string_pretty(&value)?);
+    Ok(())
 }
 
 fn run_review(args: ReviewArgs) -> Result<i32> {

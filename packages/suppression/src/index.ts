@@ -273,3 +273,6 @@ export async function applySuppression(
   }
   return { kept, suppressed, reinforced };
 }
+
+// Compounding review memory (accept/note → recall).
+export * from "./memory.js";

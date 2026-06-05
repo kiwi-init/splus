@@ -30,7 +30,7 @@ jobs:
       - run: pnpm -r build
       - run: pnpm -r typecheck
       - name: unit tests
-        run: node --test packages/suppression/dist/*.test.js packages/triage/dist/*.test.js
+        run: node --test packages/shared/dist/*.test.js packages/suppression/dist/*.test.js packages/triage/dist/*.test.js
       - name: bundle smoke test (release artifact builds + parses)
         run: |
           pnpm build:release
