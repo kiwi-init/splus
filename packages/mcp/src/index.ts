@@ -21,10 +21,10 @@
  *   SPLUS_ENGINE  path to the splus-engine binary (else auto-resolved / PATH)
  *
  * Tools:
- *   review      — review staged / working / base..HEAD / whole-repo changes (reads splus.md)
+ *   review      — review staged / working / base..HEAD / whole-repo changes (reads SPLUS.md)
  *   inspect     — the engine on tap: definition / callers / blast_radius / complexity / exports / imports
  *   floor       — re-ground on the deterministic finding floor for a scope (no directive)
- *   preferences — show the merged splus.md contract (repo + ~/.splus)
+ *   preferences — show the merged SPLUS.md contract (repo + ~/.splus)
  *   report      — render the review as a standalone offline HTML report (final step)
  *   dismiss     — teach Splus a finding is noise (generalizes semantically)
  *   accept      — teach Splus a finding was real (reinforces + stores recallable memory)
@@ -43,6 +43,8 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   applyPolicy,
+  changedExportedSymbols,
+  diffText,
   inspect as engineInspect,
   listChangedFiles,
   loadSplusConfig,
@@ -80,10 +82,10 @@ const VERSION = typeof __SPLUS_VERSION__ !== "undefined" ? __SPLUS_VERSION__ : "
 const SERVER_INSTRUCTIONS = `Splus turns the coding agent already in this session into a disciplined, precision-first code reviewer. You are the reviewer in the chair — the engine is yours to interrogate, not a list to relay. There is no API key and no clock: curiosity and verification are the job, and a wrong comment costs more than a slow review.
 
 When the user asks you to review code:
-1. \`review\` (mode: working/staged/base/all; precise:true for compiler-grade blast radius). It reads the repo's \`splus.md\` contract (its preferences + binding nits — honor them; they come first), returns the deterministic FLOOR of findings, and hands you a directive. Do NOT ask about a "deterministic-only" mode or an ANTHROPIC_API_KEY — neither exists here.
+1. \`review\` (mode: working/staged/base/all; precise:true for compiler-grade blast radius). It reads the repo's \`SPLUS.md\` contract (its preferences + binding nits — honor them; they come first), returns the deterministic FLOOR of findings, and hands you a directive. Do NOT ask about a "deterministic-only" mode or an ANTHROPIC_API_KEY — neither exists here.
 2. INVESTIGATE, don't triage a list. The floor is grounding; the review is what you find. Pull deterministic signal on demand with \`inspect\` (kind: definition | callers | blast_radius | complexity | exports | imports) — when an export looks risky, open its callers and confirm the blast radius; recurse when something smells off. Use \`floor\` to re-ground a file subset. Read the changed code for what determinism can't see: logic, security, intent, concurrency.
 3. VERIFY every finding by trying to refute it against the cited line. Drop any you can't defend. Then REPORT survivors as must-fix / concern / nit with file:line and a concrete fix.
-4. TEACH the repo: \`dismiss <id>\` for noise, \`accept <id>\` for real, \`note\` to record a convention. \`preferences\` shows the active \`splus.md\`; \`recall\` surfaces what was learned here before.
+4. TEACH the repo: \`dismiss <id>\` for noise, \`accept <id>\` for real, \`note\` to record a convention. \`preferences\` shows the active \`SPLUS.md\`; \`recall\` surfaces what was learned here before.
 
 Other tools: \`report\` renders the offline HTML deliverable, \`mute\` silences a rule, \`learnings\` lists what's been taught, \`index\` builds a SCIP index for precise blast radius.`;
 
@@ -199,15 +201,15 @@ function toAgentReport(report: Report, suppressed: SuppressedFinding[]) {
 }
 
 /**
- * The `splus.md` contract block, prepended to the review so the agent reads the
+ * The `SPLUS.md` contract block, prepended to the review so the agent reads the
  * repo's standing preferences BEFORE planning — and an honest record of any
  * finding the binding `mute:`/`skip:` rules dropped (never silent).
  */
 function prefsBlock(cfg: SplusConfig, dropped: { ruleId: string; file: string; reason: string }[]): string {
-  const lines: string[] = ["=== splus.md · the repo's review contract (read first) ==="];
+  const lines: string[] = ["=== SPLUS.md · the repo's review contract (read first) ==="];
   if (cfg.source === "none") {
     lines.push(
-      "No splus.md found. Reviewing with engine defaults. If the user has standing preferences or",
+      "No SPLUS.md found. Reviewing with engine defaults. If the user has standing preferences or",
       "repo nits, offer to scaffold one (the `prefs` skill) — it makes the next review serve their taste.",
     );
   } else {
@@ -220,11 +222,11 @@ function prefsBlock(cfg: SplusConfig, dropped: { ruleId: string; file: string; r
   if (dropped.length) {
     lines.push(
       "",
-      `Dropped by splus.md policy (${dropped.length}): ` +
+      `Dropped by SPLUS.md policy (${dropped.length}): ` +
         dropped.map((d) => `${d.ruleId}@${d.file} (${d.reason})`).join("; "),
     );
   }
-  lines.push("=== end splus.md ===");
+  lines.push("=== end SPLUS.md ===");
   return lines.join("\n");
 }
 
@@ -241,30 +243,42 @@ function summaryLine(report: Report, suppressedCount: number): string {
  * stages (triage → discover → verify → report → teach) so the review is run, not
  * relayed. No API key — the frontier model already in the session does the work.
  */
-function discoveryDirective(files: string[]): string {
+function discoveryDirective(files: string[], changedSymbols: string[] = []): string {
   const shown = files.slice(0, 40);
   const more = files.length - shown.length;
   const list =
     (shown.map((f) => `  - ${f}`).join("\n") || "  (no changed files)") +
     (more > 0 ? `\n  …and ${more} more` : "");
+  const symbolBlock = changedSymbols.length
+    ? [
+        "",
+        "Changed exported symbols (deterministic — the contracts this change touches):",
+        ...changedSymbols.map((s) => `  - ${s}`),
+      ]
+    : [];
   return [
     "=== Splus · you are the reviewer (one flow — no API key, no clock) ===",
     "The findings above are the DETERMINISTIC FLOOR — high-precision, each anchored to a pattern, metric, or cross-file graph edge. They are NOT the review. You are the senior reviewer in the chair, seeing this code for the first time: run the full protocol over the changed code yourself. Take the time it takes — curiosity is the job.",
     "",
     "Changed files:",
     list,
+    ...symbolBlock,
     "",
     "1. TRIAGE — for each finding above, decide keep vs suppress. Optimize for signal: suppress test fixtures, idiomatic patterns for the file's role, and pure style; keep what a senior reviewer would genuinely want fixed before merge. A noisy comment costs more than a missed nit.",
-    "2. DISCOVER — read the changed code and find what determinism cannot. Don't guess — INTERROGATE THE ENGINE with `inspect` (kind: definition | callers | blast_radius | complexity | exports | imports); when a hunk smells off, open its callers and confirm the blast radius before you move on. Each finding must be grounded in a line that exists:",
-    "   • correctness — off-by-one, missing await / unhandled error path, wrong condition, null/undefined deref, resource leak, broken invariant",
+    "2. TRACE CONTRACTS — for EACH changed exported symbol above (or any changed function if the list is empty), run this discipline; it catches the single most-missed real-bug class (return-shape drift):",
+    "   a. enumerate what it returns/throws on EVERY path after this change — success, error, missing/invalid input, each early return — with the exact shape (object keys, wrapper types like {success,data,error}, Response vs parsed body, promise vs value);",
+    "   b. `inspect callers` / `inspect blast_radius`, then OPEN each call site and state what shape that caller assumes (property accesses, destructuring, truthiness checks);",
+    "   c. report every mismatch. One changed function often breaks several callers — finding one mismatch means checking the remaining call sites, not stopping.",
+    "3. DISCOVER — read the changed code and find what determinism cannot. Don't guess — INTERROGATE THE ENGINE with `inspect` (kind: definition | callers | blast_radius | complexity | exports | imports); when a hunk smells off, open its callers and confirm the blast radius before you move on. Each finding must be grounded in a line that exists:",
+    "   • correctness — off-by-one, missing await / unhandled error path, wrong condition, case-sensitive comparison where input case varies, null/undefined deref, resource leak, broken invariant",
     "   • security — injection / path-traversal / SSRF reachable from input, authz/IDOR gaps, unsafe deserialization, secret & credential handling, command or eval",
     "   • intent — does the code do what its name, comments, and the change claim? dead, contradictory, or silently fail-open logic",
-    "   • failure & concurrency — races, partial writes, retries, fail-open where it must fail-closed",
-    "   • blast radius — for any changed export, `inspect callers` / `inspect blast_radius` and open each call site to confirm it still holds",
-    "3. VERIFY — before posting anything, re-read each candidate's cited line and try to REFUTE it. Drop any you can't defend (already handled nearby, speculative, the line doesn't actually demonstrate it). A wrong comment costs more than a missed nit.",
-    "4. REPORT — the survivors as must-fix / concern / nit with file:line and a concrete fix. Never invent a finding; every claim cites a real line.",
-    "5. TEACH — `dismiss <id>` when the user agrees something is noise, `accept <id>` when they act on a real one — Splus learns this repo both ways.",
-    "6. RENDER — the deliverable that ends the review: call the `report` tool, fill the returned HTML template with the verdict + your verified survivors + the file-level impact graph, and write `splus-report.html`. One self-contained, offline file — the artifact a dev keeps next to the diff.",
+    "   • failure & concurrency — races, partial writes, retries, fail-open where it must fail-closed, concurrent mutation of shared state on request paths",
+    "   Spend your comments on the CHANGE's own logic. Do NOT pad the review with generic best-practice concerns (timing-safe comparison, rate limiting, header normalization, hardening on trusted paths) unless the diff clearly introduces the flaw — that padding is the #1 source of review noise.",
+    "4. VERIFY — before posting anything, re-read each candidate's cited line and try to REFUTE it. Drop any you can't defend (already handled nearby, speculative, the line doesn't actually demonstrate it). A wrong comment costs more than a missed nit.",
+    "5. REPORT — the survivors as must-fix / concern / nit with file:line and a concrete fix. Never invent a finding; every claim cites a real line.",
+    "6. TEACH — `dismiss <id>` when the user agrees something is noise, `accept <id>` when they act on a real one — Splus learns this repo both ways.",
+    "7. RENDER — the deliverable that ends the review: call the `report` tool, fill the returned HTML template with the verdict + your verified survivors + the file-level impact graph, and write `splus-report.html`. One self-contained, offline file — the artifact a dev keeps next to the diff.",
   ].join("\n");
 }
 
@@ -386,7 +400,7 @@ server.registerTool(
       );
     }
 
-    // The repo contract (`splus.md`): inject its prose, enforce its binding
+    // The repo contract (`SPLUS.md`): inject its prose, enforce its binding
     // `mute:`/`skip:` rules. This runs BEFORE learned suppression so a stated
     // preference always wins over the engine's defaults.
     const cfg = loadSplusConfig(repo);
@@ -416,12 +430,22 @@ server.registerTool(
 
     const payload = toAgentReport(report, suppressed);
     const body = `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(payload, null, 2)}${reinforcedNote}${preciseNote}`;
+    // Deterministic AIM for the contract-trace stage: which exported symbols the
+    // diff actually touches (engine exports ∩ hunks). Best-effort and capped —
+    // an engine hiccup or a huge change surface must never block the review.
+    const changedFiles = listChangedFiles(repo, dmode);
+    let changedSymbols: string[] = [];
+    try {
+      changedSymbols = await changedExportedSymbols(repo, changedFiles.slice(0, 20), diffText(repo, dmode));
+    } catch {
+      /* aim is enrichment, never load-bearing */
+    }
     // The handoff, and the whole product: read the repo contract first, ground the
     // agent with the deterministic floor, then drive it through the protocol. The
     // directive is ALWAYS appended — there is no other path, no key, no headless
     // mode to choose between.
     return ok(
-      `${prefsBlock(cfg, policy.dropped)}\n\n${body}\n\n${discoveryDirective(listChangedFiles(repo, dmode))}`,
+      `${prefsBlock(cfg, policy.dropped)}\n\n${body}\n\n${discoveryDirective(changedFiles, changedSymbols)}`,
     );
   },
 );
@@ -476,7 +500,7 @@ server.registerTool(
     description:
       "Return the engine's deterministic finding FLOOR for a scope as JSON — the same grounded set " +
       "`review` starts from, but without the directive. Use it to re-check a file subset or a " +
-      "different scope mid-investigation. The repo's `splus.md` binding rules are applied; learned " +
+      "different scope mid-investigation. The repo's `SPLUS.md` binding rules are applied; learned " +
       "suppression is not (this is the raw floor).",
     inputSchema: {
       root: z.string().optional().describe("Repo root (default: server CWD)."),
@@ -504,15 +528,15 @@ server.registerTool(
   },
 );
 
-// --- preferences (the splus.md contract) -----------------------------------
+// --- preferences (the SPLUS.md contract) -----------------------------------
 
 server.registerTool(
   "preferences",
   {
-    title: "Show the active splus.md contract",
+    title: "Show the active SPLUS.md contract",
     description:
-      "Return the merged `splus.md` review contract for this repo (repo `./splus.md` layered over " +
-      "`~/.splus/splus.md`), including its binding `mute:`/`skip:` rules. This is the repo's standing " +
+      "Return the merged `SPLUS.md` review contract for this repo (repo `./SPLUS.md` layered over " +
+      "`~/.splus/SPLUS.md`), including its binding `mute:`/`skip:` rules. This is the repo's standing " +
       "preferences + nits — `review` already injects it, but call this to read it directly.",
     inputSchema: {
       root: z.string().optional().describe("Repo root (default: server CWD)."),
@@ -523,12 +547,12 @@ server.registerTool(
     const cfg = loadSplusConfig(rootOf(root));
     if (cfg.source === "none") {
       return ok(
-        "No splus.md found (repo root or ~/.splus/splus.md). Reviewing with engine defaults — the " +
+        "No SPLUS.md found (repo root or ~/.splus/SPLUS.md). Reviewing with engine defaults — the " +
           "`prefs` skill scaffolds one so the next review serves the repo's taste.",
       );
     }
     return ok(
-      `splus.md (${cfg.source})\nmuted rules: ${cfg.mutedRules.join(", ") || "—"}\n` +
+      `SPLUS.md (${cfg.source})\nmuted rules: ${cfg.mutedRules.join(", ") || "—"}\n` +
         `skip paths: ${cfg.skipPaths.join(", ") || "—"}\n\n${cfg.raw.trim()}`,
     );
   },
@@ -764,7 +788,7 @@ server.registerTool(
       "Remember a repo convention or context you discovered while reviewing (e.g. 'this module uses " +
       "Result<T,E>, never throws' or 'auth/ requires every handler to call requireSession first'), so " +
       "future reviews `recall` it. Complements `accept` (which remembers confirmed findings). Written " +
-      "to .splus-cache/memory.json; promotable into splus.md for a binding rule.",
+      "to .splus-cache/memory.json; promotable into SPLUS.md for a binding rule.",
     inputSchema: {
       root: z.string().optional().describe("Repo root (default: server CWD)."),
       text: z.string().describe("The convention/context to remember, in one sentence."),
@@ -775,7 +799,7 @@ server.registerTool(
   async ({ root, text, file }) => {
     const store = new FileMemoryStore(memoryPath(rootOf(root)));
     await store.remember({ kind: "note", text, file });
-    return ok(`Noted. Splus will recall this on future reviews of this repo. (Promote it into splus.md to make it a binding rule.)`);
+    return ok(`Noted. Splus will recall this on future reviews of this repo. (Promote it into SPLUS.md to make it a binding rule.)`);
   },
 );
 

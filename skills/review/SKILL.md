@@ -31,7 +31,7 @@ slow review.
 ## The flow
 
 ### 0. Read the contract — FIRST, always
-Before anything else, read `splus.md` (the repo's review contract). `review`
+Before anything else, read `SPLUS.md` (the repo's review contract). `review`
 injects it and `preferences` returns it, but treat it as step zero: it encodes
 the repo's standing preferences, nits, and binding `mute:`/`skip:` rules. **It
 overrides the engine's defaults and your own taste.** If there is none, you may
@@ -49,7 +49,7 @@ the worst judge of it. So review in **fresh sub-agents** that see the diff cold:
 - Partition the changed files into a few coherent **units** (by directory /
   subsystem). For a small diff, one unit is fine.
 - For each unit, spawn a **fresh `Task` sub-agent** with the `references/investigate.md`
-  protocol. Hand it only: the unit's files, the `splus.md` contract, the floor for
+  protocol. Hand it only: the unit's files, the `SPLUS.md` contract, the floor for
   those files (`floor`), and the stated intent (PR title / commit message) — **not**
   this session's implementation narrative.
 - Each sub-agent INVESTIGATES with the toolbelt instead of guessing: `inspect`
@@ -79,10 +79,19 @@ the diff.
 - `mute <ruleId>` when a whole class is unwanted here.
 
 ## Lenses
-Within a unit, a thorough reviewer applies every lens — correctness, security,
-intent, failure/concurrency, blast-radius. See `references/lenses.md`. For a large
-unit, fan out one sub-agent per lens (each blind to the others) so different
-failure modes get found instead of one pass.
+Within a unit, a thorough reviewer applies every lens — contract-drift,
+correctness, security, intent, failure/concurrency, blast-radius. See
+`references/lenses.md`. For a large unit, fan out one sub-agent per lens (each
+blind to the others) so different failure modes get found instead of one pass.
+
+Two disciplines outrank the rest (they decide real-world precision and recall):
+- **Trace every changed contract.** `review` lists the changed exported symbols
+  deterministically. For each: enumerate the return/throw shape on every path,
+  open every caller, report every assumption that no longer holds. Return-shape
+  drift is the most-missed real-bug class.
+- **No checklist padding.** Generic hardening concerns (timing-safe compares,
+  rate limiting, header casing) are noise unless the diff itself introduces the
+  flaw — they crowd out the comments that matter.
 
 ## The standard you're held to
 Coverage, not speed. For every changed export, you should have `inspect`ed its

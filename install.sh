@@ -11,7 +11,7 @@
 #   SPLUS_VERSION     pin a release tag (e.g. v0.3.0); default: latest
 #   SPLUS_INSTALL_DIR install prefix; default: $HOME/.splus
 #   SPLUS_LOCAL_DIST  install from a local dir of built artifacts instead of
-#                     downloading (expects splus-engine, mcp.cjs) —
+#                     downloading (expects splus-engine, mcp.cjs, optionally skills/) —
 #                     used for local testing of this script
 #   SPLUS_NO_MODIFY_PATH=1  don't touch shell rc files
 #   SPLUS_NO_WIRE=1         don't auto-wire coding agents
@@ -94,6 +94,7 @@ if [ -n "${SPLUS_LOCAL_DIST:-}" ]; then
   detail "using local dist: $SPLUS_LOCAL_DIST"
   cp "$SPLUS_LOCAL_DIST/splus-engine" "$tmp/" || die "missing splus-engine in SPLUS_LOCAL_DIST"
   cp "$SPLUS_LOCAL_DIST/mcp.cjs" "$tmp/" || die "missing mcp.cjs in SPLUS_LOCAL_DIST"
+  [ -d "$SPLUS_LOCAL_DIST/skills" ] && cp -R "$SPLUS_LOCAL_DIST/skills" "$tmp/skills"
   version="local"
 else
   if command -v curl >/dev/null 2>&1; then dl() { curl -fsSL "$1" -o "$2"; }
@@ -167,6 +168,16 @@ esac
 EOF
 chmod 0755 "$BIN_DIR/splus"
 printf '%s\n' "$version" > "$INSTALL_DIR/version"
+
+# The review-protocol skills — the canonical copy lives in ~/.splus/skills; the
+# agent wiring below copies/points each coding agent at it. The protocol is a
+# first-class artifact: agents load it explicitly instead of depending on MCP
+# tool descriptions being read.
+if [ -d "$tmp/skills" ]; then
+  rm -rf "$INSTALL_DIR/skills"
+  cp -R "$tmp/skills" "$INSTALL_DIR/skills"
+fi
+
 if [ "$updating" -eq 1 ]; then
   ok "core updated"
 else
@@ -301,11 +312,65 @@ EOF
   [ "$wired" = 1 ] || warn "no coding agent detected — register \`$MCP_BIN\` as an MCP server manually"
 fi
 
+# --- install the review protocol as agent skills ----------------------------
+# The skills ARE the product's review protocol — installing them per agent makes
+# the protocol explicit and user-invocable instead of depending on the agent
+# happening to read MCP tool descriptions. Unlike MCP wiring, this also runs on
+# updates: a refreshed protocol is half the point of `splus update`.
+if [ -z "${SPLUS_NO_WIRE:-}" ] && [ -d "$INSTALL_DIR/skills" ]; then
+  detail "installing agent skills"
+
+  # The SKILL.md body without its Claude-specific YAML frontmatter.
+  skill_body() { awk 'f>1 {print} /^---$/ {f++}' "$1"; }
+  # The one-line description from the frontmatter (for OpenCode's command header).
+  skill_desc() { awk '/^description: /{sub(/^description: /,""); print; exit}' "$1"; }
+  # Point non-Claude agents at the canonical per-stage reference files.
+  skill_refs() {
+    [ -d "$INSTALL_DIR/skills/$1/references" ] || return 0
+    printf '\n> Stage protocols — read each file in %s/skills/%s/references/ as you reach that stage.\n' "$INSTALL_DIR" "$1"
+  }
+
+  # Claude Code — native skills (auto-triggered by name + user-invocable).
+  if command -v claude >/dev/null 2>&1 || [ -d "$HOME/.claude" ]; then
+    mkdir -p "$HOME/.claude/skills"
+    for s in review prefs; do
+      [ -d "$INSTALL_DIR/skills/$s" ] || continue
+      rm -rf "$HOME/.claude/skills/splus-$s"
+      cp -R "$INSTALL_DIR/skills/$s" "$HOME/.claude/skills/splus-$s"
+    done
+    ok "Claude Code skills (splus-review, splus-prefs)"
+  fi
+
+  # Codex — custom prompts, slash-invocable (/splus-review).
+  if command -v codex >/dev/null 2>&1 || [ -d "$HOME/.codex" ]; then
+    mkdir -p "$HOME/.codex/prompts"
+    for s in review prefs; do
+      [ -f "$INSTALL_DIR/skills/$s/SKILL.md" ] || continue
+      { skill_body "$INSTALL_DIR/skills/$s/SKILL.md"; skill_refs "$s"; } > "$HOME/.codex/prompts/splus-$s.md"
+    done
+    ok "Codex prompts (/splus-review, /splus-prefs)"
+  fi
+
+  # OpenCode — commands, slash-invocable (/splus-review).
+  if command -v opencode >/dev/null 2>&1 || [ -d "$HOME/.config/opencode" ]; then
+    mkdir -p "$HOME/.config/opencode/command"
+    for s in review prefs; do
+      [ -f "$INSTALL_DIR/skills/$s/SKILL.md" ] || continue
+      {
+        printf -- '---\ndescription: %s\n---\n' "$(skill_desc "$INSTALL_DIR/skills/$s/SKILL.md")"
+        skill_body "$INSTALL_DIR/skills/$s/SKILL.md"
+        skill_refs "$s"
+      } > "$HOME/.config/opencode/command/splus-$s.md"
+    done
+    ok "OpenCode commands (/splus-review, /splus-prefs)"
+  fi
+fi
+
 # --- done ------------------------------------------------------------------
 if [ "$updating" -eq 1 ]; then
   printf '\n%b\n' "${c_grn}${c_b}Splus is up to date.${c_0}"
 else
   printf '\n%b\n' "${c_grn}${c_b}Splus is installed.${c_0}"
-  printf '%b\n' "  ${c_dim}then, in your agent:${c_0} \"review my staged changes with splus\""
+  printf '%b\n' "  ${c_dim}then, in your agent:${c_0} /splus-review  ${c_dim}(or \"review my staged changes with splus\")${c_0}"
   printf '%b\n' "  ${c_dim}update:${c_0} splus update"
 fi

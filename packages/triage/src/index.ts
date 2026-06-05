@@ -13,7 +13,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Finding, Report, Severity } from "@splus/shared";
-import { Severity as SeverityEnum, Category as CategoryEnum } from "@splus/shared";
+import { Severity as SeverityEnum, Category as CategoryEnum, changedExportedSymbols } from "@splus/shared";
 
 export const TRIAGE_MODEL = "claude-haiku-4-5";
 export const DISCOVERY_MODEL = "claude-opus-4-8";
@@ -417,51 +417,24 @@ function selectDiscoverySurface(
   return { files: surface.slice(0, DISCOVERY_FILE_CAP), notes };
 }
 
-async function discover(
-  client: LLMClient,
-  model: string,
-  root: string,
-  files: string[],
-  diff: string | undefined,
-  accUsage: (r: LLMResponse) => void,
-): Promise<TriagedFinding[]> {
-  const blocks = files
-    .map((f) => {
-      const src = readFileSafe(join(root, f));
-      if (!src) return null;
-      return `### ${f}\n${numberLines(src)}`;
-    })
-    .filter(Boolean)
-    .join("\n\n");
-  if (!blocks && !diff) return [];
+/** Lens A — broad sweep over the change. */
+const DISCOVER_SWEEP_SYSTEM =
+  "You are Splus in deep-review mode, reviewing the NEW/changed code in a diff. Find EVERY plausible bug the change introduces, in this priority order: (1) the change's own logic — wrong variable, inverted/incomplete condition, off-by-one, case-sensitive comparison where input case varies, broken invariants, intent/spec mismatches (code that doesn't do what its name/comment/PR claims); (2) error and edge paths — missing await, unhandled rejection/exception, null/undefined, resource leaks, concurrent mutation of shared state; (3) breaking API/signature changes; (4) security the diff itself introduces (injection, SSRF, path-traversal, authz/IDOR, unsafe deserialization, secrets). " +
+  "Do NOT pad the review with generic best-practice concerns (timing-safe comparison, rate limiting, header normalization, input sanitization on trusted paths) unless the diff clearly introduces the flaw. " +
+  "Prioritize RECALL on the changed logic: a separate verification pass removes false positives, so err toward flagging anything a careful senior reviewer might raise — but only about the CHANGED code, and each finding MUST cite a real line number from the provided files. Don't flag pre-existing code the diff didn't touch.";
 
-  // The DIFF is the focus (bugs live in changed lines); the full files are
-  // context for reasoning. Lead with the diff so the model reviews the change,
-  // not the whole file blind — the single biggest recall lever.
-  const userContent = diff
-    ? `Review this DIFF. The added/changed lines (\`+\`) are where bugs are most likely; cite line numbers from the FULL FILES below.\n\n=== DIFF (the change under review) ===\n${diff.slice(0, 60000)}\n\n=== FULL FILES (numbered, for context + line numbers) ===\n${blocks}`
-    : `Changed files:\n\n${blocks}`;
+/** Lens B — trace each changed contract into its callers. */
+const DISCOVER_CONTRACT_SYSTEM =
+  "You are Splus in contract-tracing mode. The diff changes the functions listed under CHANGED SYMBOLS (extracted deterministically). For EACH one, trace the data flow with discipline:\n" +
+  "1. RETURN SHAPE — enumerate what it returns/throws on every path after this change: success, error, missing/invalid input, each early return. Include the exact shape (object keys, wrapper types like {success,data,error}, Response vs parsed body, promise vs value).\n" +
+  "2. CALLERS — find every call site in the provided files (search the full files for the symbol). For each, state what shape the caller assumes (property accesses, destructuring, truthiness checks).\n" +
+  "3. MISMATCH — report every place a caller's assumption no longer matches the new behavior. This bug class (return-shape drift, sentinel/hardcoded fallback values, Response-vs-data confusion) is the reason this pass exists; one changed function often breaks several callers.\n" +
+  "Also check each changed comparison for case/type strictness against the data it actually receives, and each shared structure mutated on a request path for concurrent access.\n" +
+  "Report ONLY issues the change introduces, each citing a real line number from the provided files. Skip style, naming, and generic hardening concerns entirely.";
 
-  const res = await client.messages.create({
-    model,
-    max_tokens: 4096,
-    system: [
-      {
-        type: "text",
-        text:
-          "You are Splus in deep-review mode, reviewing the NEW/changed code in a diff. Find EVERY plausible bug the change introduces: logic errors, off-by-one, missing await/unhandled error paths, null/undefined, broken invariants, resource leaks, race conditions, security (injection, SSRF, path-traversal, authz/IDOR, unsafe deserialization, secrets), breaking API/signature changes, and intent/spec mismatches (code that doesn't do what its name/comment/PR claims). " +
-          "Prioritize RECALL: a separate verification pass removes false positives, so err toward flagging anything a careful senior reviewer might raise — but only about the CHANGED code, and each finding MUST cite a real line number from the provided files. Don't flag pre-existing code the diff didn't touch.",
-        cache_control: { type: "ephemeral" },
-      },
-    ],
-    tools: [DISCOVERY_TOOL],
-    tool_choice: { type: "tool", name: "report_findings" },
-    messages: [{ role: "user", content: userContent }],
-  });
-  accUsage(res);
-
+/** Parse one discovery response into findings (shared by both lenses). */
+function parseDiscoveries(res: LLMResponse, fileSet: Set<string>): TriagedFinding[] {
   const out: TriagedFinding[] = [];
-  const fileSet = new Set(files);
   for (const d of parseTool<{ findings: DiscoveryItem[] }>(res)?.findings ?? []) {
     if (!fileSet.has(d.file)) continue; // must cite a provided file (anti-hallucination)
     // The model is tool-constrained but not schema-validated on the client side,
@@ -492,6 +465,89 @@ async function discover(
   }
   return out;
 }
+
+async function discover(
+  client: LLMClient,
+  model: string,
+  root: string,
+  files: string[],
+  diff: string | undefined,
+  accUsage: (r: LLMResponse) => void,
+): Promise<TriagedFinding[]> {
+  const blocks = files
+    .map((f) => {
+      const src = readFileSafe(join(root, f));
+      if (!src) return null;
+      return `### ${f}\n${numberLines(src)}`;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+  if (!blocks && !diff) return [];
+
+  // The DIFF is the focus (bugs live in changed lines); the full files are
+  // context for reasoning. Lead with the diff so the model reviews the change,
+  // not the whole file blind — the single biggest recall lever.
+  const userContent = diff
+    ? `Review this DIFF. The added/changed lines (\`+\`) are where bugs are most likely; cite line numbers from the FULL FILES below.\n\n=== DIFF (the change under review) ===\n${diff.slice(0, 60000)}\n\n=== FULL FILES (numbered, for context + line numbers) ===\n${blocks}`
+    : `Changed files:\n\n${blocks}`;
+
+  const fileSet = new Set(files);
+  const call = (system: string, content: string) =>
+    client.messages
+      .create({
+        model,
+        max_tokens: 4096,
+        system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+        tools: [DISCOVERY_TOOL],
+        tool_choice: { type: "tool", name: "report_findings" },
+        messages: [{ role: "user", content }],
+      })
+      .then((res) => {
+        accUsage(res);
+        return parseDiscoveries(res, fileSet);
+      });
+
+  // Lens B only exists when there is a diff to anchor the contract trace. Its
+  // CHANGED SYMBOLS block comes from the engine (tree-sitter exports ∩ diff
+  // hunks) — deterministic aim for the data-flow class the sweep keeps missing.
+  // Engine signal is best-effort: an empty block still leaves a useful lens.
+  const lenses = [call(DISCOVER_SWEEP_SYSTEM, userContent)];
+  if (diff) {
+    const symbols = await changedExportedSymbols(root, files, diff);
+    const symbolBlock = symbols.length
+      ? `=== CHANGED SYMBOLS (deterministic — exported symbols whose body the diff touches) ===\n${symbols.join("\n")}\n\n`
+      : "";
+    lenses.push(call(DISCOVER_CONTRACT_SYSTEM, symbolBlock + userContent));
+  }
+
+  const settled = await Promise.allSettled(lenses);
+  const found = settled.filter((s) => s.status === "fulfilled").map((s) => (s as PromiseFulfilledResult<TriagedFinding[]>).value);
+  // One lens failing (CLI hiccup) must not kill the whole discovery pass — but
+  // BOTH failing means no discovery happened: surface that instead of a silent
+  // empty review (the benchmark would record it as a legit zero-finding score).
+  if (found.length === 0) {
+    const first = settled[0] as PromiseRejectedResult;
+    throw first.reason instanceof Error ? first.reason : new Error(String(first.reason));
+  }
+  return dedupeDiscoveries(found.flat());
+}
+
+/** file:line + normalized-title dedup across lenses (first occurrence wins). */
+function dedupeDiscoveries(all: TriagedFinding[]): TriagedFinding[] {
+  const out: TriagedFinding[] = [];
+  const seenLoc = new Set<string>();
+  const seenTitle = new Set<string>();
+  for (const f of all) {
+    const loc = `${f.file}:${f.region.start_line}`;
+    const title = f.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 64);
+    if (seenLoc.has(loc) || seenTitle.has(title)) continue;
+    seenLoc.add(loc);
+    seenTitle.add(title);
+    out.push(f);
+  }
+  return out;
+}
+
 
 interface DiscoveryItem {
   file: string;
@@ -633,7 +689,7 @@ function severityRank(s: Severity): number {
 }
 
 /** Most low/medium UNGROUNDED findings surfaced per changed file. */
-const UNGROUNDED_PER_FILE = 3;
+const UNGROUNDED_PER_FILE = 4;
 
 /**
  * Cap the low/medium UNGROUNDED (LLM-discovered) findings surfaced per file to

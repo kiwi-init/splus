@@ -211,8 +211,8 @@ test("signal budget caps low/medium discoveries per file to the most-confident f
   writeFileSync(join(dir, "src", "a.ts"), Array.from({ length: 12 }, (_, i) => `line${i + 1}`).join("\n") + "\n");
 
   // Five low-severity discoveries on ONE file — an over-firing pass. Verify
-  // affirms all (so the cut is the budget, not verification). Only the 3
-  // most-confident may surface; the other 2 are demoted, not deleted.
+  // affirms all (so the cut is the budget, not verification). Only the 4
+  // most-confident may surface; the other 1 is demoted, not deleted.
   const confidences: Record<number, number> = { 1: 0.9, 2: 0.5, 3: 0.8, 4: 0.6, 5: 0.7 };
   const client: LLMClient = {
     messages: {
@@ -244,16 +244,16 @@ test("signal budget caps low/medium discoveries per file to the most-confident f
   const out = await triage(rep, { root: dir, client, thorough: true, verify: true, changedFiles: ["src/a.ts"] });
 
   assert.equal(out.llm.discovered, 5, "five discovered");
-  assert.equal(out.llm.budgeted, 2, "two demoted by the per-file budget");
-  assert.equal(out.findings.length, 3, "only the 3 most-confident surface");
-  assert.equal(out.summary.findings_total, 3, "summary reflects the final kept set");
+  assert.equal(out.llm.budgeted, 1, "one demoted by the per-file budget");
+  assert.equal(out.findings.length, 4, "only the 4 most-confident surface");
+  assert.equal(out.summary.findings_total, 4, "summary reflects the final kept set");
   assert.equal(out.summary.must_fix, 0);
   assert.equal(out.summary.concern, 0);
-  assert.equal(out.summary.nit, 3);
+  assert.equal(out.summary.nit, 4);
   const surfaced = out.findings.map((f) => f.title).sort();
-  assert.deepEqual(surfaced, ["nit-1", "nit-3", "nit-5"], "kept the top-3 by confidence (0.9/0.8/0.7)");
+  assert.deepEqual(surfaced, ["nit-1", "nit-3", "nit-4", "nit-5"], "kept the top-4 by confidence (0.9/0.8/0.7/0.6)");
   const demoted = out.suppressed.filter((f) => /signal budget/.test(f.rationale ?? ""));
-  assert.equal(demoted.length, 2, "demoted ones are visible in suppressed, not deleted");
+  assert.equal(demoted.length, 1, "demoted one is visible in suppressed, not deleted");
 });
 
 test("verify is fail-closed for low-severity speculation, fail-open for medium+", async () => {

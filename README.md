@@ -83,10 +83,10 @@ Your agent connects to the local server and calls these:
 
 | Tool          | What it does                                                                |
 | ------------- | --------------------------------------------------------------------------- |
-| `review`      | Read `splus.md`, return the deterministic floor + a directive, drive the review. |
+| `review`      | Read `SPLUS.md`, return the deterministic floor + a directive, drive the review. |
 | `inspect`     | The engine **on tap**: `definition` · `callers` · `blast_radius` · `complexity` · `exports` · `imports` — investigate on demand. |
 | `floor`       | Re-ground on the deterministic finding floor for a scope (no directive).    |
-| `preferences` | Show the merged `splus.md` contract (repo + `~/.splus`).                     |
+| `preferences` | Show the merged `SPLUS.md` contract (repo + `~/.splus`).                     |
 | `recall`      | Surface past confirmed findings / conventions relevant to a hunk.           |
 | `note`        | Remember a repo convention you discovered (→ `recall`).                      |
 | `dismiss`     | Teach Splus a finding is noise — it generalizes to close variants.          |
@@ -96,15 +96,15 @@ Your agent connects to the local server and calls these:
 | `report`      | Render the review as a standalone offline HTML report.                      |
 | `index`       | Build a SCIP index locally for the precise (compiler-grade) blast-radius tier. |
 
-Agent-led, one flow: `review` injects the repo's `splus.md` contract and returns the grounded
+Agent-led, one flow: `review` injects the repo's `SPLUS.md` contract and returns the grounded
 deterministic floor; **you** drive the review — pull signal on demand with `inspect`, verify before
 posting, then `report` and teach. No API key, ever — the model already in your editor does the
 reasoning. Learnings stay per-repo in `.splus-cache/` (suppressions in `learnings.json`, memory in
 `memory.json`) — they never leave your checkout.
 
-### `splus.md` — the repo's review contract
+### `SPLUS.md` — the repo's review contract
 
-Drop a `splus.md` at the repo root (layered over your personal `~/.splus/splus.md`). Splus reads it
+Drop a `SPLUS.md` at the repo root (layered over your personal `~/.splus/SPLUS.md`). Splus reads it
 **first** on every review: prose preferences/nits guide the reviewer, and binding `mute: <ruleId>` /
 `skip: <glob>` lines drop matching findings (and say so — never silently). The `prefs` skill scaffolds one.
 
@@ -112,7 +112,7 @@ Drop a `splus.md` at the repo root (layered over your personal `~/.splus/splus.m
 
 The `skills/` bundle drives the agent-led flow: `review` (fans out **fresh, unbiased sub-agents** per
 unit — finder ≠ verifier — and degrades to a sequential pass where sub-agents aren't available) and
-`prefs` (author `splus.md`).
+`prefs` (author `SPLUS.md`).
 
 **Full reference: [`docs/TOOLS.md`](docs/TOOLS.md)** — every tool, parameter, and return shape.
 

@@ -68,6 +68,7 @@ jobs:
           mkdir -p staging
           cp "target/${{ matrix.target }}/release/splus-engine" staging/
           cp dist-release/mcp.cjs staging/
+          cp -R skills staging/skills
           tar -czf "splus-${{ matrix.name }}.tar.gz" -C staging .
 
       - uses: actions/upload-artifact@v7
