@@ -1,0 +1,700 @@
+<!doctype html>
+<!--
+  splus · review report — TEMPLATE
+  ════════════════════════════════════════════════════════════════════════════
+  This is the standalone HTML report the review flow emits as its FINAL STEP.
+  It is fully self-contained (CSS + JS + the impact graph are all inline; no CDN,
+  opens offline). The structure, stylesheet, and graph engine are FIXED — do not
+  restyle. You only fill DATA.
+
+  Fill the regions marked  ⟦SLOT:name⟧ … ⟦/SLOT⟧  with content derived from your
+  VERIFIED findings, then write the result to `splus-report.html`. Each slot ships
+  with a tiny example so the unfilled template still renders — replace it.
+
+  Locked design (do not deviate):
+    • Black background, monochrome text. Color ONLY for accents already defined in
+      the stylesheet (severity dots, confidence meter, diff add/del, graph edges).
+    • Section order: Verdict → Summary → Impact graph → Findings → Hotspots → Footer.
+    • The impact graph is the centerpiece: files = nodes, impact = edges, hover traces
+      the blast radius, click a node to drill into it.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- ⟦SLOT:title⟧ --><title>splus · review report</title><!-- ⟦/SLOT⟧ -->
+<style>
+  /* ──────────────────────────────────────────────────────────────
+     white on black, vivid accents, graph-first. (FIXED — do not edit)
+     ────────────────────────────────────────────────────────────── */
+  :root {
+    --bg:    #000000;
+    --bg2:   #000000;   /* cards — defined by hairline borders, not fill */
+    --bg3:   #0c0c0f;   /* code / inset */
+    --fg:    #f4f5f7;
+    --fg2:   #b9bec8;
+    --muted: #7e858f;
+    --faint: #4d525b;
+    --line:  #161616;
+    --line2: #232427;
+
+    /* vivid accents */
+    --red:    #ff4d5e;
+    --orange: #ff9142;
+    --amber:  #ffc53d;
+    --blue:   #57a6ff;
+    --cyan:   #2fe3ff;
+    --purple: #b98bff;
+    --green:  #2ee6a0;
+    --info:   #8b92a0;
+
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", "Cascadia Code", monospace;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; background:#000; color:var(--fg);
+    font-family:var(--mono); font-size:13px; line-height:1.55; letter-spacing:-0.1px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:920px; margin:0 auto; padding:40px 28px 110px; }
+  a { color:var(--blue); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+
+  /* ── Masthead ───────────────────────────────────────────────── */
+  .mast { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
+  .brand { display:flex; align-items:center; gap:11px; }
+  .brand .dot { width:10px; height:10px; border-radius:50%; background:var(--cyan);
+                box-shadow:0 0 10px var(--cyan); }
+  .brand .name { font-weight:700; font-size:16px; letter-spacing:0.5px; }
+  .brand .sub { color:var(--muted); font-size:12px; }
+  .mast .meta { text-align:right; color:var(--muted); font-size:12px; line-height:1.7; }
+  .mast .meta b { color:var(--fg); font-weight:600; }
+
+  /* ── Verdict ────────────────────────────────────────────────── */
+  .verdict { margin-top:24px; border:1px solid var(--line2); border-left:3px solid var(--green);
+             border-radius:var(--radius); padding:16px 18px; background:var(--bg2);
+             box-shadow:0 0 28px rgba(46,230,160,0.06);
+             display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+  .chip { display:inline-flex; align-items:center; gap:8px; font-weight:700; font-size:12px;
+          letter-spacing:0.6px; padding:6px 12px; border-radius:999px; border:1px solid currentColor; }
+  .chip.good { color:var(--green); }
+  .chip.warn { color:var(--amber); }
+  .chip.bad  { color:var(--red); }
+  .chip .pulse { width:7px; height:7px; border-radius:50%; background:currentColor; box-shadow:0 0 8px currentColor; }
+  .verdict .say { color:var(--fg2); flex:1 1 240px; }
+  .verdict .say b { color:var(--fg); }
+  .conf { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:12px; white-space:nowrap; }
+  .conf .seg { display:flex; gap:3px; }
+  .conf .seg i { width:15px; height:9px; border-radius:2px; background:var(--line2); }
+  .conf .seg i.on { background:var(--green); box-shadow:0 0 7px rgba(46,230,160,0.6); }
+
+  /* ── Section rule ───────────────────────────────────────────── */
+  .rule { display:flex; align-items:center; gap:12px; margin:40px 0 16px; }
+  .rule__label { font-size:11px; letter-spacing:1.8px; color:var(--muted); font-weight:700; white-space:nowrap; }
+  .rule::after { content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--line2),transparent); }
+  .rule .n { color:var(--faint); font-weight:600; }
+
+  /* ── Tiles ──────────────────────────────────────────────────── */
+  .tiles { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+  .tile { border:1px solid var(--line); border-radius:var(--radius); padding:13px; background:var(--bg2); }
+  .tile .k { font-size:27px; font-weight:700; line-height:1; letter-spacing:-0.5px; }
+  .tile .l { margin-top:7px; font-size:10.5px; letter-spacing:0.5px; color:var(--muted); text-transform:uppercase; }
+  .tile.has-mf .k { color:var(--red); }
+  .tile.has-cn .k { color:var(--amber); }
+  .tile.has-nt .k { color:var(--blue); }
+  @media (max-width:720px){ .tiles { grid-template-columns:repeat(3,1fr); } }
+
+  .prose { border:1px solid var(--line); border-radius:var(--radius); padding:18px 20px; background:var(--bg2); margin-top:18px; }
+  .prose p { margin:0 0 11px; color:var(--fg2); } .prose p:last-child { margin:0; }
+  .prose strong { color:var(--fg); } .prose .hl { color:var(--cyan); }
+  .prose code, footer code {
+    background:var(--bg3); border:1px solid var(--line2); border-radius:4px; padding:1px 5px; font-size:12px; color:var(--fg); }
+  /* inline code inside a finding: severity-tinted + bold, NO box, so the sentence reads as prose */
+  .find code { background:none; border:none; padding:0; font-weight:700; color:var(--fg); }
+  .find.f-medium code   { color:var(--amber); }
+  .find.f-low code      { color:var(--blue); }
+  .find.f-high code     { color:var(--orange); }
+  .find.f-critical code { color:var(--red); }
+  .drill-note code, #cleanNote code { color:var(--cyan); font-weight:600; }
+
+  /* ── Graph canvas (shared) ──────────────────────────────────── */
+  .canvas { position:relative; border:1px solid var(--line); border-radius:var(--radius); background:#000; overflow:hidden; }
+  .canvas.hero { padding:8px; }
+  svg.graph { width:100%; height:auto; display:block; }
+
+  .graph .edge { fill:none; stroke:var(--line2); stroke-width:1.5; }
+  .graph .edge.tone-hub     { stroke:var(--cyan); }
+  .graph .edge.tone-concern { stroke:var(--amber); }
+  .graph .edge.tone-nit     { stroke:var(--blue); }
+  .graph .edge.tone-api     { stroke:var(--purple); }
+  .graph .edge.tone-mustfix { stroke:var(--red); }
+  .graph .edge.tone-fixture { stroke:var(--purple); }
+  .graph .edge.affected     { stroke-width:2.1; }
+  .graph .edge.tone-concern.affected { filter:drop-shadow(0 0 4px rgba(255,197,61,.65)); }
+  .graph .edge.tone-nit.affected     { filter:drop-shadow(0 0 4px rgba(87,166,255,.65)); }
+  .graph .edge.tone-mustfix.affected { filter:drop-shadow(0 0 4px rgba(255,77,94,.6)); }
+  .graph .edge.tone-fixture.affected { filter:drop-shadow(0 0 4px rgba(185,139,255,.6)); }
+  .graph .elabel-bg { fill:var(--bg); opacity:0.92; }
+  .graph .elabel { fill:var(--muted); font-size:9px; letter-spacing:0.2px; }
+  .graph .elabel.lit { fill:var(--fg); }
+
+  .graph .node rect { fill:var(--bg3); stroke:var(--line2); stroke-width:1.4; }
+  .graph .node .nm { font-weight:700; fill:var(--fg); }
+  .graph .node .sb { fill:var(--muted); }
+  .graph .node.tone-hub rect     { stroke:var(--cyan);   filter:drop-shadow(0 0 7px rgba(47,227,255,.42)); }
+  .graph .node.tone-concern rect { stroke:var(--amber);  filter:drop-shadow(0 0 7px rgba(255,197,61,.40)); }
+  .graph .node.tone-nit rect     { stroke:var(--blue);   filter:drop-shadow(0 0 7px rgba(87,166,255,.38)); }
+  .graph .node.tone-mustfix rect { stroke:var(--red);    filter:drop-shadow(0 0 8px rgba(255,77,94,.5)); }
+  .graph .node.tone-fixture rect { stroke:var(--purple); filter:drop-shadow(0 0 7px rgba(185,139,255,.40)); }
+  .graph .node.tone-bydesign rect{ stroke:var(--line2); }
+  .graph .node.subject rect { stroke-width:2.2; }
+  .graph .node .badge { filter:drop-shadow(0 0 5px rgba(255,197,61,.7)); fill:var(--amber); }
+  .graph .node .badge.fx { fill:var(--purple); }
+  .graph .node .badge.rl { fill:var(--red); }
+  .graph .node .badge-t { fill:#0a0b0d; font-weight:800; }
+
+  svg.graph.focus .node { opacity:0.28; } svg.graph.focus .node.lit { opacity:1; }
+  svg.graph.focus .edge { opacity:0.10; } svg.graph.focus .edge.lit { opacity:1; }
+  svg.graph.focus .elabel, svg.graph.focus .elabel-bg { opacity:0.10; }
+  svg.graph.focus .elabel.lit, svg.graph.focus .elabel-bg.lit { opacity:0.92; }
+  svg.graph.focus .elabel.lit { opacity:1; }
+
+  .legend { display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; padding:0 2px; color:var(--muted); font-size:11px; }
+  .legend span { display:inline-flex; align-items:center; gap:7px; }
+  .legend i { width:12px; height:12px; border-radius:3px; border:2px solid; background:transparent; }
+  .legend i.cyan{border-color:var(--cyan);box-shadow:0 0 6px var(--cyan)} .legend i.amber{border-color:var(--amber)}
+  .legend i.red{border-color:var(--red)} .legend i.blue{border-color:var(--blue)}
+  .legend i.purple{border-color:var(--purple)} .legend .ln{width:18px;height:0;border:none;border-top:2px dashed var(--purple);border-radius:0}
+
+  .gtip { position:fixed; pointer-events:none; z-index:1000; opacity:0; transform:translate(-50%,-118%);
+          transition:opacity .08s; background:#05060a; border:1px solid var(--line2); color:var(--fg);
+          border-radius:8px; padding:10px 12px; font-size:11px; line-height:1.6; max-width:280px;
+          box-shadow:0 14px 40px rgba(0,0,0,0.7); }
+  .gtip.below { transform:translate(-50%,14%); }
+  .gtip b { color:var(--cyan); } .gtip .p { color:var(--muted); } .gtip .api { color:var(--purple); }
+
+  /* animated flow — dashes travel source→target so impact direction reads live */
+  @keyframes flow { to { stroke-dashoffset:-22; } }
+  svg.graph.flow .edge { stroke-dasharray:5 6; animation:flow 1.6s linear infinite; }
+  svg.graph.flow .edge.affected,
+  svg.graph.flow .edge.lit { animation-duration:0.7s; }
+  /* affects graphs: only the broken edge travels, context edges stay calm */
+  svg.graph.flow-affected .edge.affected { stroke-dasharray:5 6; animation:flow 0.85s linear infinite; }
+  @media (prefers-reduced-motion: reduce){ svg.graph.flow .edge, svg.graph.flow-affected .edge { animation:none; } }
+  .graph .node.clickable { cursor:pointer; }
+  .graph .node .exp { fill:none; stroke:var(--faint); stroke-width:1.2; }
+  .graph .node.lit .exp, .graph .node.sticky .exp { stroke:var(--cyan); }
+  .graph .node.sticky rect { stroke:var(--cyan); stroke-width:2.2; }
+
+  /* drill-down: click a file node → its internal function graph */
+  .drill { margin-top:12px; border:1px solid var(--line2); border-radius:var(--radius); overflow:hidden;
+           animation:fade .18s ease; }
+  @keyframes fade { from { opacity:0; transform:translateY(-4px); } }
+  .drill-head { display:flex; align-items:center; justify-content:space-between; gap:12px;
+                padding:11px 15px; border-bottom:1px solid var(--line); font-size:11.5px; color:var(--muted); }
+  .drill-head .ttl b { color:var(--cyan); font-weight:700; }
+  .drill-head .ttl .c { color:var(--faint); }
+  .drill-clear { background:none; border:1px solid var(--line2); color:var(--muted); border-radius:6px;
+                 padding:4px 10px; font:inherit; font-size:10.5px; cursor:pointer; }
+  .drill-clear:hover { color:var(--fg); border-color:var(--faint); }
+  .drill .canvas { border:none; border-radius:0; }
+  .drill-note { padding:10px 15px; color:var(--muted); font-size:11px; border-top:1px solid var(--line); }
+  .drill-note b { color:var(--fg2); }
+
+  /* findings filter state */
+  #focusHint { margin:0 0 14px; font-size:11.5px; color:var(--muted); display:none; align-items:center; gap:10px; }
+  #focusHint.on { display:flex; }
+  #focusHint b { color:var(--cyan); }
+  #focusHint .all { color:var(--blue); cursor:pointer; border:none; background:none; font:inherit; font-size:11.5px; }
+  #focusHint .all:hover { text-decoration:underline; }
+  .find.hidden { display:none; }
+  #cleanNote { display:none; border:1px dashed var(--line2); border-radius:var(--radius);
+               padding:16px 18px; color:var(--muted); font-size:12px; }
+  #cleanNote.on { display:block; }
+  #cleanNote b { color:var(--green); }
+  .find { transition:box-shadow .25s ease; }
+  .find.flash { box-shadow:0 0 0 1px var(--cyan), 0 0 26px rgba(47,227,255,.28); }
+
+  /* verification verdict tones (optional — for mode:all / triaged reviews) */
+  .find.f-real     { border-left-color:var(--red); }
+  .find.f-fixture  { border-left-color:var(--purple); }
+  .find.f-bydesign { border-left-color:var(--faint); }
+  .vchip { font-size:10px; letter-spacing:0.8px; text-transform:uppercase; padding:2px 8px; border-radius:5px;
+           border:1px solid currentColor; white-space:nowrap; }
+  .vchip.real     { color:var(--red); }
+  .vchip.info     { color:var(--blue); }
+  .vchip.fixture  { color:var(--purple); }
+  .vchip.bydesign { color:var(--faint); }
+  .vbreak { display:flex; gap:7px; align-items:center; font-size:11.5px; color:var(--muted); white-space:nowrap; flex-wrap:wrap; }
+  .vbreak b { font-weight:700; }
+  .vbreak .r{color:var(--red)} .vbreak .f{color:var(--purple)} .vbreak .d{color:var(--faint)} .vbreak .i{color:var(--blue)} .vbreak .c{color:var(--amber)}
+  .clset { margin:13px 0 2px; font-size:11.5px; color:var(--muted); padding-left:18px; }
+  .clset li { margin:5px 0; }
+  .find.f-real code     { color:var(--red); }
+  .find.f-fixture code  { color:var(--purple); }
+  .find.f-bydesign code { color:var(--fg2); }
+
+  /* ── Findings ───────────────────────────────────────────────── */
+  .find { border:1px solid var(--line2); border-left-width:2px; border-radius:var(--radius); margin-bottom:16px; background:var(--bg2); overflow:hidden; }
+  .find.f-medium { border-left-color:var(--amber); }
+  .find.f-low    { border-left-color:var(--blue); }
+  .find.f-high   { border-left-color:var(--orange); }
+  .find.f-critical { border-left-color:var(--red); }
+  .find > header { display:flex; align-items:flex-start; gap:14px; padding:16px 18px 15px; }
+  .sev { display:inline-flex; align-items:center; gap:8px; font-size:11px; font-weight:700; letter-spacing:0.5px; white-space:nowrap; }
+  .sev .d { width:10px; height:10px; border-radius:50%; }
+  .sev.critical{color:var(--red)} .sev.critical .d{background:var(--red);box-shadow:0 0 9px var(--red)}
+  .sev.high{color:var(--orange)} .sev.high .d{background:var(--orange);box-shadow:0 0 9px var(--orange)}
+  .sev.medium{color:var(--amber)} .sev.medium .d{background:var(--amber);box-shadow:0 0 9px var(--amber)}
+  .sev.low{color:var(--blue)} .sev.low .d{background:var(--blue);box-shadow:0 0 9px var(--blue)}
+  .sev.info{color:var(--info)} .sev.info .d{background:var(--info)}
+  .find header .h { flex:1; min-width:0; }
+  .find header .title { font-weight:700; font-size:15px; letter-spacing:-0.2px; line-height:1.35; }
+  .find header .title code { font-size:13.5px; }
+  .find header .loc { margin-top:6px; color:var(--muted); font-size:11.5px; display:flex; gap:10px; align-items:center; }
+  .find header .loc a { color:var(--muted); }
+  .find header .loc a:hover { color:var(--blue); }
+  .find header .loc .lines { color:var(--faint); }
+  .tier { font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:var(--faint); white-space:nowrap; padding-top:2px; }
+  .find .body { padding:4px 18px 18px; }
+  .msg { color:var(--fg2); margin:0 0 16px; max-width:64ch; }
+  /* metadata: one quiet line, not chip soup */
+  .meta-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:11.5px; color:var(--muted);
+          margin:0 0 18px; padding-bottom:16px; border-bottom:1px solid var(--line); }
+  .meta-row .cat { color:var(--fg2); font-weight:600; }
+  .meta-row .rid { color:var(--muted); }
+  .meta-row .src { color:var(--faint); }
+  .meta-row .sep { color:var(--faint); }
+  .meta-row .conf { margin-left:auto; display:flex; align-items:center; gap:8px; white-space:nowrap; }
+  .meta-row .conf b { color:var(--fg2); font-weight:600; }
+  .meta-row .conf .bar { width:46px; height:4px; border-radius:2px; background:var(--line2); overflow:hidden; }
+  .meta-row .conf .bar i { display:block; height:100%; background:var(--blue); }
+
+  /* affects strip */
+  .affects { margin-bottom:14px; }
+  .affects .cap { font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:var(--muted);
+                  margin-bottom:7px; display:flex; align-items:center; gap:8px; }
+  .affects .cap .tag { color:var(--green); border:1px solid var(--green); border-radius:999px; padding:1px 8px; font-size:9.5px; letter-spacing:0.5px; }
+  .affects .cap .tag.spread { color:var(--amber); border-color:var(--amber); }
+  .affects .note { margin-top:8px; color:var(--muted); font-size:11px; }
+  .affects .note b { color:var(--fg2); }
+
+  /* code / diff */
+  .code { border:1px solid var(--line2); border-radius:7px; overflow:hidden; background:var(--bg3); }
+  .code .cap { font-size:10.5px; letter-spacing:0.6px; text-transform:uppercase; color:var(--muted);
+               padding:8px 13px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; }
+  .code pre { margin:0; padding:11px 0; overflow-x:auto; font-size:12px; line-height:1.65; }
+  .code .ln { display:block; padding:0 15px; white-space:pre; color:var(--fg2); }
+  .code .ln.add { background:rgba(46,230,160,0.10); color:#5ff0b6; box-shadow:inset 2px 0 var(--green); }
+  .code .ln.del { background:rgba(255,77,94,0.10); color:#ff8a96; box-shadow:inset 2px 0 var(--red); }
+  .code .ln .g { color:var(--faint); }
+
+  /* files table */
+  table.files { width:100%; border-collapse:collapse; font-size:12px; }
+  table.files th { text-align:left; font-size:10.5px; letter-spacing:0.6px; text-transform:uppercase; color:var(--muted);
+                   font-weight:700; padding:8px 10px; border-bottom:1px solid var(--line2); }
+  table.files td { padding:11px 10px; border-bottom:1px solid var(--line); vertical-align:top; color:var(--fg2); }
+  table.files td.fn { font-weight:700; color:var(--fg); white-space:nowrap; }
+  table.files td.fn small { display:block; color:var(--faint); font-weight:400; }
+  table.files td.n { text-align:right; white-space:nowrap; }
+  .delta .add { color:#5ff0b6; } .delta .del { color:#ff8a96; }
+  .fbadge { font-size:10px; font-weight:700; border-radius:5px; padding:2px 7px; }
+  .fbadge.cn { color:var(--amber); border:1px solid var(--amber); }
+  .fbadge.nt { color:var(--blue); border:1px solid var(--blue); }
+  .fbadge.none { color:var(--faint); }
+
+  footer { margin-top:44px; padding-top:18px; border-top:1px solid var(--line2); color:var(--muted); font-size:11px; }
+  footer .row { display:flex; gap:8px; margin-bottom:7px; flex-wrap:wrap; }
+  footer .row .lab { color:var(--faint); min-width:128px; text-transform:uppercase; letter-spacing:0.5px; font-size:10px; }
+  footer .gen { margin-top:14px; color:var(--faint); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ════════ MASTHEAD ════════ -->
+  <!-- ⟦SLOT:masthead⟧ — repo name, what was reviewed, file/line counts, engine version + date -->
+  <div class="mast">
+    <div class="brand">
+      <span class="dot"></span>
+      <div><div class="name">splus</div><div class="sub">review</div></div>
+    </div>
+    <div class="meta">
+      <div><b>splus</b> review — <code>mode: working</code></div>
+      <div>0 files · +0</div>
+      <div>splus-engine · 2026-01-01</div>
+    </div>
+  </div>
+  <!-- ⟦/SLOT⟧ -->
+
+  <!-- ════════ VERDICT ════════ -->
+  <!-- ⟦SLOT:verdict⟧ — chip is `good` (SAFE TO MERGE) only if must-fix == 0; else `bad`
+       (CHANGES REQUESTED) with the must-fix count, or `warn` for a triaged/by-design verdict.
+       Set the inline border-left-color + box-shadow to match the chip tone. -->
+  <div class="verdict">
+    <span class="chip good"><span class="pulse"></span>SAFE TO MERGE</span>
+    <div class="say">Replace with a one-line summary of the review outcome.</div>
+    <div class="conf">merge confidence
+      <span class="seg"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span>
+    </div>
+  </div>
+  <!-- ⟦/SLOT⟧ -->
+
+  <!-- ════════ SUMMARY ════════ -->
+  <div class="rule"><span class="rule__label">SUMMARY</span></div>
+  <!-- ⟦SLOT:tiles⟧ — files, added, must-fix, concern, nit, suppressed.
+       A tile takes its accent class (has-mf / has-cn / has-nt) only when its count > 0. -->
+  <div class="tiles">
+    <div class="tile"><div class="k">0</div><div class="l">Files</div></div>
+    <div class="tile"><div class="k">+0</div><div class="l">Added</div></div>
+    <div class="tile"><div class="k">0</div><div class="l">Must-fix</div></div>
+    <div class="tile"><div class="k">0</div><div class="l">Concern</div></div>
+    <div class="tile"><div class="k">0</div><div class="l">Nit</div></div>
+    <div class="tile"><div class="k">0</div><div class="l">Suppressed</div></div>
+  </div>
+  <!-- ⟦/SLOT⟧ -->
+  <!-- ⟦SLOT:prose⟧ — 1–3 short paragraphs: what was reviewed, how blast radius resolved
+       (heuristic vs SCIP), and the headline takeaway. Optional; delete if not useful. -->
+  <div class="prose">
+    <p>Replace with a short narrative of the review.</p>
+  </div>
+  <!-- ⟦/SLOT⟧ -->
+
+  <!-- ════════ IMPACT GRAPH (centerpiece) ════════ -->
+  <div class="rule"><span class="rule__label">IMPACT GRAPH</span></div>
+  <div class="canvas hero" id="heroWrap">
+    <svg class="graph" id="hero" viewBox="0 0 840 252" role="img" aria-label="System impact map">
+      <g id="hero-edges"></g><g id="hero-elabels"></g><g id="hero-nodes"></g>
+    </svg>
+  </div>
+  <!-- ⟦SLOT:legend⟧ — match the node tones you used in DATA. -->
+  <div class="legend">
+    <span><i class="red"></i> must-fix</span>
+    <span><i class="amber"></i> concern</span>
+    <span><i class="blue"></i> nit</span>
+    <span style="color:var(--faint)">hover to trace · click a module to drill into it</span>
+  </div>
+  <!-- ⟦/SLOT⟧ -->
+
+  <!-- DRILL-DOWN: file internals (symbol-level). Structure FIXED; populated from FILES. -->
+  <div class="drill" id="drill" hidden>
+    <div class="drill-head">
+      <span class="ttl"><b id="drillFile">—</b> <span class="c">· internals</span></span>
+      <button class="drill-clear" id="drillClear">clear focus ✕</button>
+    </div>
+    <div class="canvas"><svg class="graph" id="drillSvg" viewBox="0 0 840 168" role="img" aria-label="File internals"></svg></div>
+    <div class="drill-note" id="drillNote"></div>
+  </div>
+
+  <!-- ════════ FINDINGS ════════ -->
+  <div class="rule"><span class="rule__label">FINDINGS</span> <span class="n" id="findCount"></span></div>
+  <div id="focusHint"><span>Focused on <b id="focusFile">—</b> — <span id="focusCount"></span></span><button class="all" id="showAll">show all findings</button></div>
+  <div id="cleanNote"></div>
+
+  <!-- ⟦SLOT:findings⟧ — one <article class="find …"> per VERIFIED finding, in tier order
+       (must-fix → concern → nit). Card anatomy below; copy it per finding. Required attrs:
+         • class: f-critical | f-high | f-medium | f-low  (severity)  — or a verdict tone:
+           f-real | f-fixture | f-bydesign  when you ran a triaged/mode:all verification pass.
+         • data-file="<key>" must match a key in the FILES object so hover/drill cross-links.
+         • id="f-…" if a graph node links to it (node.finding).
+       Drop any sub-block (affects / suggestion / clset / vchip) a finding doesn't have.
+       For an affects graph: give the <svg> an id and add a matching entry to AFFECTS below. -->
+  <article class="find f-low" data-file="example/file.ts" id="f-example">
+    <header>
+      <span class="sev low"><span class="d"></span>LOW</span>
+      <div class="h">
+        <div class="title">Example finding title — replace me</div>
+        <div class="loc"><a href="#" title="example/file.ts">example/file.ts</a><span class="lines">L1</span></div>
+      </div>
+      <span class="tier">nit</span>
+    </header>
+    <div class="body">
+      <p class="msg">Replace with the finding message — what's wrong and why it matters.</p>
+      <div class="meta-row">
+        <span class="cat">category</span><span class="sep">·</span>
+        <span class="rid">rule.id</span><span class="sep">·</span>
+        <span class="src">via heuristic</span>
+        <span class="conf">confidence <b>50%</b><span class="bar"><i style="width:50%"></i></span></span>
+      </div>
+      <!-- optional affects graph:
+      <div class="affects">
+        <div class="cap">affects · relationships <span class="tag">blast radius</span></div>
+        <div class="canvas"><svg class="graph" id="aff-example" viewBox="0 0 840 150"></svg></div>
+        <div class="note"><b>Fix:</b> …</div>
+      </div> -->
+      <!-- optional suggested fix:
+      <div class="code">
+        <div class="cap"><span>Suggested fix — file</span><span>lang</span></div>
+        <pre><span class="ln"><span class="g">  </span>context</span><span class="ln add">+ added</span><span class="ln del">- removed</span></pre>
+      </div> -->
+    </div>
+  </article>
+  <!-- ⟦/SLOT⟧ -->
+
+  <!-- ════════ HOTSPOTS ════════ -->
+  <div class="rule"><span class="rule__label">HOTSPOTS</span> <span class="n" id="hotspotN"></span></div>
+  <!-- ⟦SLOT:hotspots⟧ — the modules carrying the most signal (or the cleanest). -->
+  <table class="files">
+    <thead><tr><th>Module</th><th>What it is</th><th class="n">Findings</th><th class="n">Verdict</th></tr></thead>
+    <tbody>
+      <tr><td class="fn">example/file.ts<small>pkg</small></td>
+        <td>Replace with a one-line description.</td>
+        <td class="n">0</td><td class="n"><span class="fbadge none">clean</span></td></tr>
+    </tbody>
+  </table>
+  <!-- ⟦/SLOT⟧ -->
+
+  <!-- ════════ FOOTER ════════ -->
+  <!-- ⟦SLOT:footer⟧ — collectors run, blast-radius precision, teach hint, generated-by line. -->
+  <footer>
+    <div class="row"><span class="lab">mode</span><span><code>working</code> — uncommitted changes vs HEAD</span></div>
+    <div class="row"><span class="lab">collectors run</span><span><code>git-graph</code> <code>tree-sitter</code> <code>heuristics</code> <code>secrets</code></span></div>
+    <div class="row"><span class="lab">teach</span><span><code>dismiss &lt;id&gt;</code> a false positive · <code>accept &lt;id&gt;</code> a real one — Splus learns this repo both ways.</span></div>
+    <div class="gen">splus — deterministic floor + senior-reviewer verification · local-only</div>
+  </footer>
+  <!-- ⟦/SLOT⟧ -->
+</div>
+
+<!-- hover tooltip — body-level + position:fixed so it never gets clipped by a graph canvas -->
+<div class="gtip" id="gtip"></div>
+
+<script>
+/* ──────────────────────────────────────────────────────────────
+   Reusable graph renderer (FIXED — do not edit). Nodes carry { col }
+   for left→right layering; edges curve between columns. Used for the
+   file-level hero map AND the per-finding symbol-level "affects" graphs.
+
+   node:  { id, col, label, sub?, tone?, subject?, badge?, badgeKind?, tip?, finding? }
+   edge:  { from, to, tone?, label?, dashed?, affected? }
+   tones: hub | concern | nit | mustfix | fixture | bydesign | api | clean
+   ────────────────────────────────────────────────────────────── */
+const SVGNS = "http://www.w3.org/2000/svg";
+const mk = (t,a={}) => { const e=document.createElementNS(SVGNS,t); for(const k in a) e.setAttribute(k,a[k]); return e; };
+
+function renderGraph(svg, data, opt){
+  const W = opt.W, H = opt.H, NW = opt.nodeW, NH = opt.nodeH, gap = opt.vGap, pad = opt.pad;
+  const cols = [...new Set(data.nodes.map(n=>n.col))].sort((a,b)=>a-b);
+  const colX = {};
+  cols.forEach((c,i)=>{ colX[c] = cols.length===1 ? (W-NW)/2 : pad + i*((W-2*pad-NW)/(cols.length-1)); });
+  const pos = {};
+  cols.forEach(c=>{
+    const arr = data.nodes.filter(n=>n.col===c);
+    const total = arr.length*NH + (arr.length-1)*gap, top=(H-total)/2;
+    arr.forEach((n,i)=>{ pos[n.id]={x:colX[c], y:top+i*(NH+gap)}; });
+  });
+
+  if(opt.flow) svg.classList.add(opt.flow===true ? "flow" : opt.flow);
+
+  const gEdges  = mk("g"), gLabels = mk("g"), gNodes = mk("g");
+  // defs (each svg needs its own marker)
+  const defs = mk("defs");
+  const m = mk("marker",{id:svg.id+"-arr",viewBox:"0 0 10 10",refX:"9",refY:"5",markerWidth:"6.5",markerHeight:"6.5",orient:"auto-start-reverse"});
+  m.appendChild(mk("path",{d:"M0,0 L10,5 L0,10 z",fill:"context-stroke"})); defs.appendChild(m);
+  svg.appendChild(defs);
+
+  data.edges.forEach((e,i)=>{
+    const a=pos[e.from], b=pos[e.to];
+    if(!a||!b) return;
+    const x1=a.x+NW, y1=a.y+NH/2, x2=b.x, y2=b.y+NH/2;
+    const dx=Math.max(34,(x2-x1)*0.5);
+    const d=`M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;
+    const cls = "edge" + (e.tone?(" tone-"+e.tone):"") + (e.affected?" affected":"");
+    const p = mk("path",{class:cls, d, "marker-end":`url(#${svg.id}-arr)`,
+                         ...(e.dashed?{"stroke-dasharray":"5 4"}:{})});
+    p.dataset.from=e.from; p.dataset.to=e.to;
+    gEdges.appendChild(p);
+    if(opt.edgeLabels && e.label){
+      // bias the label toward the source so labels on edges that diverge
+      // from the same node don't stack on top of each other at the midpoint
+      const t = opt.labelT ?? 0.5;
+      const mx=x1+(x2-x1)*t, my=y1+(y2-y1)*t - 4;
+      const w=e.label.length*4.9+10;
+      const bg=mk("rect",{class:"elabel-bg",x:mx-w/2,y:my-9,width:w,height:13,rx:3});
+      const tx=mk("text",{class:"elabel",x:mx,y:my+1,"text-anchor":"middle"}); tx.textContent=e.label;
+      bg.dataset.from=tx.dataset.from=e.from; bg.dataset.to=tx.dataset.to=e.to;
+      gLabels.appendChild(bg); gLabels.appendChild(tx);
+    }
+  });
+
+  const clickableOf = n => !!opt.onNodeClick && (!opt.clickableIf || opt.clickableIf(n));
+  data.nodes.forEach(n=>{
+    const p=pos[n.id], canClick=clickableOf(n);
+    const g=mk("g",{class:"node"+(n.tone?(" tone-"+n.tone):"")+(n.subject?" subject":"")+(canClick?" clickable":"")});
+    g.dataset.id=n.id;
+    g.appendChild(mk("rect",{x:p.x,y:p.y,width:NW,height:NH,rx:8}));
+    const nm=mk("text",{class:"nm",x:p.x+13,y:p.y+NH*0.42+3,"font-size":opt.nameSize}); nm.textContent=n.label;
+    g.appendChild(nm);
+    if(n.sub){ const sb=mk("text",{class:"sb",x:p.x+13,y:p.y+NH*0.74+3,"font-size":opt.subSize}); sb.textContent=n.sub; g.appendChild(sb); }
+    if(n.badge){
+      const bx=p.x+NW-13, by=p.y+13;
+      g.appendChild(mk("circle",{class:"badge"+(n.badgeKind?" "+n.badgeKind:""),cx:bx,cy:by,r:9}));
+      const bt=mk("text",{class:"badge-t",x:bx,y:by+3.5,"text-anchor":"middle","font-size":"9.5"}); bt.textContent=n.badge;
+      g.appendChild(bt);
+    }
+    if(opt.expandGlyph && canClick){               // disclosure chevron → drill into functions
+      const cx=p.x+NW-13, cy=p.y+NH-12, ex=mk("g",{class:"exp"});
+      ex.appendChild(mk("circle",{cx,cy,r:6,fill:"none"}));
+      ex.appendChild(mk("path",{d:`M${cx-2.6},${cy-1.3} L${cx},${cy+1.8} L${cx+2.6},${cy-1.3}`,fill:"none"}));
+      g.appendChild(ex);
+    }
+    if(canClick) g.addEventListener("click",()=>opt.onNodeClick(n.id));
+    gNodes.appendChild(g);
+  });
+
+  svg.appendChild(gEdges); svg.appendChild(gLabels); svg.appendChild(gNodes);
+
+  if(!opt.interactive) return;
+  const nodeEls=[...gNodes.children], edgeEls=[...gEdges.children], labelEls=[...gLabels.children];
+  const byId=Object.fromEntries(data.nodes.map(n=>[n.id,n]));
+  const tip=opt.tip;
+  let sticky=null;
+  function light(id){
+    svg.classList.add("focus");
+    const conn=new Set([id]);
+    edgeEls.forEach(ed=>{ const on=ed.dataset.from===id||ed.dataset.to===id; ed.classList.toggle("lit",on); if(on){conn.add(ed.dataset.from);conn.add(ed.dataset.to);} });
+    labelEls.forEach(l=>l.classList.toggle("lit", l.dataset.from===id||l.dataset.to===id));
+    nodeEls.forEach(ne=>ne.classList.toggle("lit", conn.has(ne.dataset.id)));
+  }
+  function clear(){ svg.classList.remove("focus"); edgeEls.forEach(e=>e.classList.remove("lit")); labelEls.forEach(l=>l.classList.remove("lit")); nodeEls.forEach(n=>n.classList.remove("lit")); if(tip) tip.style.opacity=0; }
+  function restore(){ if(sticky) light(sticky); else clear(); }       // mouseleave returns to the focused file
+  function setSticky(id){ sticky=id; nodeEls.forEach(ne=>ne.classList.toggle("sticky", !!id && ne.dataset.id===id)); if(id) light(id); else clear(); }
+  nodeEls.forEach(ne=>{
+    const id=ne.dataset.id, n=byId[id], p=pos[id];
+    ne.addEventListener("mouseenter",()=>{
+      light(id);
+      if(tip && n.tip){
+        tip.innerHTML=n.tip;
+        tip.style.opacity=1;                              // show first so offsetWidth/Height are real
+        const r=svg.getBoundingClientRect();
+        const cx=r.left+(p.x+NW/2)/W*r.width;             // node center, viewport coords
+        const topY=r.top+(p.y)/H*r.height;                // node top edge, viewport coords
+        const botY=r.top+(p.y+NH)/H*r.height;             // node bottom edge
+        const tw=tip.offsetWidth, th=tip.offsetHeight;
+        tip.style.left=Math.max(tw/2+10, Math.min(cx, window.innerWidth-tw/2-10))+"px";
+        if(topY - th*1.25 < 8){ tip.classList.add("below"); tip.style.top=botY+"px"; }   // flip below near top
+        else { tip.classList.remove("below"); tip.style.top=topY+"px"; }
+      }
+    });
+    ne.addEventListener("mouseleave",()=>{ if(tip) tip.style.opacity=0; restore(); });
+  });
+  return { light, clear, restore, setSticky };
+}
+
+/* ═══════════════ AGENT-FILLED DATA ═══════════════
+   Fill the three objects below from your VERIFIED findings. The renderer above
+   and the orchestration below are fixed — you only supply data here. */
+
+/* ── HERO: file-level system map ───────────────────────────────
+   One node per changed module (inputs → collectors/core → consumers, left→right
+   via `col`). `tone` colors hotspots; `badge` = finding count; `tip` = hover card
+   (innerHTML). Edges point in the direction impact propagates. */
+const DATA = /* ⟦SLOT:graph⟧ */ {
+  nodes:[
+    {id:"example/file.ts",col:0,tone:"nit",label:"file.ts",sub:"example",
+     tip:`<b>example/file.ts</b><div class="p">replace this map with your changed modules</div>`},
+  ],
+  edges:[],
+} /* ⟦/SLOT⟧ */;
+
+/* ── MODULE INTERNALS (symbol-level) — drives the drill-down ─────
+   Keyed by the same id you used for hero nodes AND on each finding card's
+   data-file. `note` is the panel text (innerHTML). `graph` (optional) is the
+   function-level view; a node with `finding:"f-…"` becomes clickable → jumps to
+   that finding card. `findingsNote` shows when a focused file has no cards. */
+const FILES = /* ⟦SLOT:files⟧ */ {
+  "example/file.ts":{ name:"example/file.ts",
+    note:"Replace with what this module is and why it carries (or doesn't carry) signal.",
+    graph:null },
+} /* ⟦/SLOT⟧ */;
+
+/* ── PER-FINDING "affects" graphs ───────────────────────────────
+   One entry per finding card that contains an <svg> with the matching id.
+   Statically lit; only the `affected` edge animates. Leave [] if no card has one. */
+const AFFECTS = /* ⟦SLOT:affects⟧ */ [
+  // { id:"aff-example", nodes:[ {id:"a",col:0,subject:true,label:"…"}, {id:"b",col:1,label:"…"} ],
+  //   edges:[ {from:"a",to:"b",affected:true,label:"…"} ] },
+] /* ⟦/SLOT⟧ */;
+
+/* ═══════════════ ORCHESTRATION (FIXED — do not edit) ═══════════════ */
+const tip=document.getElementById("gtip");
+const heroApi = renderGraph(document.getElementById("hero"), DATA,
+  {W:840,H:252,nodeW:150,nodeH:48,vGap:26,pad:16,nameSize:"12",subSize:"9",
+   edgeLabels:true,labelT:0.42,interactive:true,flow:true,expandGlyph:true,
+   onNodeClick:(id)=>focusFile(id), tip, clickableIf:(n)=>!!FILES[n.id]});
+
+const AFF_OPT = {W:840,H:150,nodeW:158,nodeH:42,vGap:20,pad:14,nameSize:"11",subSize:"8.6",edgeLabels:true,interactive:false,flow:"flow-affected"};
+AFFECTS.forEach(a=>{ const el=document.getElementById(a.id); if(el) renderGraph(el, {nodes:a.nodes,edges:a.edges}, AFF_OPT); });
+
+const drill=document.getElementById("drill"), drillSvg=document.getElementById("drillSvg"),
+      drillFileEl=document.getElementById("drillFile"), drillNote=document.getElementById("drillNote"),
+      drillCanvas=drillSvg.parentElement;
+const focusHint=document.getElementById("focusHint"), focusFileEl=document.getElementById("focusFile"),
+      focusCount=document.getElementById("focusCount"), cleanNote=document.getElementById("cleanNote");
+const findCards=[...document.querySelectorAll(".find")];
+let currentFocus=null;
+
+document.getElementById("findCount").textContent = findCards.length ? `${findCards.length} card${findCards.length>1?"s":""}` : "";
+
+function jumpToFinding(fid){
+  const card=document.getElementById(fid); if(!card) return;
+  card.classList.remove("hidden");
+  card.scrollIntoView({behavior:"smooth",block:"center"});
+  card.classList.add("flash"); setTimeout(()=>card.classList.remove("flash"),1400);
+}
+
+function showDrill(id){
+  const f=FILES[id]; if(!f){ drill.hidden=true; return; }
+  drillFileEl.textContent=f.name;
+  drillNote.innerHTML=f.note||"";
+  drillSvg.innerHTML="";
+  if(f.graph){
+    drillCanvas.style.display="";
+    renderGraph(drillSvg, f.graph, {W:840,H:168,nodeW:156,nodeH:42,vGap:18,pad:14,
+      nameSize:"11",subSize:"8.6",edgeLabels:true,labelT:0.42,flow:true,
+      clickableIf:(n)=>!!n.finding, onNodeClick:(sid)=>{ const sn=f.graph.nodes.find(x=>x.id===sid); if(sn&&sn.finding) jumpToFinding(sn.finding); }});
+  } else { drillCanvas.style.display="none"; }
+  drill.hidden=false;
+}
+
+function filterFindings(id){
+  const f=FILES[id]||{}; let n=0;
+  findCards.forEach(c=>{ const m=c.dataset.file===id; c.classList.toggle("hidden",!m); if(m)n++; });
+  focusHint.classList.add("on");
+  focusFileEl.textContent=f.name||id;
+  focusCount.textContent = n ? `${n} finding card${n>1?"s":""}` : "summarized below";
+  cleanNote.classList.toggle("on", n===0);
+  if(n===0) cleanNote.innerHTML = f.findingsNote
+    ? f.findingsNote
+    : `<b>✓ Clean.</b> <code>${f.name||id}</code> was reviewed — nothing flagged.`;
+}
+
+function focusFile(id){
+  if(currentFocus===id){ clearFocus(); return; }   // click same node again → unfocus
+  currentFocus=id;
+  heroApi.setSticky(id);
+  showDrill(id);
+  filterFindings(id);
+}
+
+function clearFocus(){
+  currentFocus=null;
+  heroApi.setSticky(null);
+  drill.hidden=true;
+  findCards.forEach(c=>c.classList.remove("hidden"));
+  focusHint.classList.remove("on");
+  cleanNote.classList.remove("on");
+}
+
+document.getElementById("drillClear").addEventListener("click",clearFocus);
+document.getElementById("showAll").addEventListener("click",clearFocus);
+
+// finding card hover → highlight its node in the system map (bi-directional)
+findCards.forEach(card=>{
+  const fid=card.dataset.file;
+  card.addEventListener("mouseenter",()=>heroApi.light(fid));
+  card.addEventListener("mouseleave",()=>heroApi.restore());
+});
+</script>
+</body>
+</html>

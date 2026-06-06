@@ -1,0 +1,27 @@
+{
+  "name": "@splus/mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Splus MCP server (local) — a stdio MCP server your coding agent (Claude Code, Codex, OpenCode) connects to. Runs the deterministic review engine on your local checkout and applies this repo's learned suppressions. No account, no token, nothing leaves your machine.",
+  "bin": {
+    "splus-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@splus/shared": "workspace:*",
+    "@splus/suppression": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,113 @@
+name: Release
+
+# Tag a version (e.g. `git tag v0.3.1 && git push --tags`) to cut a release.
+# Builds the deterministic engine for each platform, bundles the MCP server
+# into a single .cjs file, and publishes a GitHub Release with per-platform
+# tarballs + SHA256SUMS. The installer (install.sh) pulls these via the stable
+# `releases/latest/download/splus-<os>-<arch>.tar.gz` URL.
+#
+# Both macOS targets build on the Apple-Silicon runner (macos-14): arm64 native,
+# x64 via a trivial cross-compile — so a release never waits on the slow/scarce
+# Intel (macos-13) queue. Linux builds native on x64 + arm64 runners.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: darwin-arm64, runner: macos-14, target: aarch64-apple-darwin }
+          - { name: darwin-x64, runner: macos-14, target: x86_64-apple-darwin }
+          - { name: linux-x64, runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { name: linux-arm64, runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build engine (release)
+        run: cargo build --release --locked --bin splus-engine --target ${{ matrix.target }}
+
+      - name: Verify binary architecture (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          bin="target/${{ matrix.target }}/release/splus-engine"
+          file "$bin"
+          case "${{ matrix.target }}" in
+            x86_64-*)  file "$bin" | grep -q "x86_64" || { echo "::error::expected an x86_64 binary, cross-compile produced the wrong arch"; exit 1; } ;;
+            aarch64-*) file "$bin" | grep -q "arm64"  || { echo "::error::expected an arm64 binary"; exit 1; } ;;
+          esac
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build + bundle MCP server
+        run: |
+          pnpm --filter @splus/shared --filter @splus/suppression \
+               --filter @splus/mcp build
+          pnpm build:release
+
+      - name: Package tarball
+        run: |
+          mkdir -p staging
+          cp "target/${{ matrix.target }}/release/splus-engine" staging/
+          cp dist-release/mcp.cjs staging/
+          cp -R skills staging/skills
+          tar -czf "splus-${{ matrix.name }}.tar.gz" -C staging .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: splus-${{ matrix.name }}
+          path: splus-${{ matrix.name }}.tar.gz
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Verify all platform artifacts are present
+        run: |
+          cd artifacts
+          missing=0
+          for name in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+            if [ ! -f "splus-$name.tar.gz" ]; then
+              echo "::error::missing release artifact: splus-$name.tar.gz"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Refusing to publish a partial release — install.sh would 404 for the missing platform."
+            exit 1
+          fi
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum splus-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/splus-*.tar.gz
+            artifacts/SHA256SUMS
+          generate_release_notes: true

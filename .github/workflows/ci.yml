@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  engine:
+    name: Rust engine · build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test --locked
+      - name: installer smoke tests
+        run: sh scripts/test-install.sh
+
+  packages:
+    name: TS packages · build · typecheck · test · bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      - run: pnpm -r typecheck
+      - name: unit tests
+        run: node --test packages/shared/dist/*.test.js packages/suppression/dist/*.test.js
+      - name: bundle smoke test (release artifact builds + parses)
+        run: |
+          pnpm build:release
+          node --check dist-release/mcp.cjs

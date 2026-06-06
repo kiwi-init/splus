@@ -1,0 +1,33 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Node
+node_modules/
+dist/
+dist-release/
+staging/
+*.tsbuildinfo
+.pnpm-store/
+
+# Env / secrets
+.env
+.env.local
+*.pem
+private-key*.pem
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Splus runtime
+.splus-cache/
+.splus-data/
+.vercel
+.env*
+
+# Others
+bench/
+explorations/
+splus-report.html

@@ -1,0 +1,9 @@
+{
+  "//": "Root tsconfig used ONLY by `splus index` (scip-typescript) to index all package sources in one pass. Per-package builds use their own tsconfig.json.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false
+  },
+  "include": ["packages/*/src/**/*"]
+}
