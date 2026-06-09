@@ -65,6 +65,13 @@ import {
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import {
+  auditBlock,
+  extendFloor,
+  recordInspect,
+  recordResolution,
+  startLedger,
+} from "./audit.js";
 import { REPORT_TEMPLATE } from "./reportTemplate.js";
 
 // Inlined from packages/mcp/package.json at bundle time (esbuild `define` in
@@ -87,7 +94,7 @@ When the user asks you to review code:
 3. VERIFY every finding by trying to refute it against the cited line. Drop any you can't defend. Then REPORT survivors as must-fix / concern / nit with file:line and a concrete fix.
 4. TEACH the repo: \`dismiss <id>\` for noise, \`accept <id>\` for real, \`note\` to record a convention. \`preferences\` shows the active \`SPLUS.md\`; \`recall\` surfaces what was learned here before.
 
-Other tools: \`report\` renders the offline HTML deliverable, \`mute\` silences a rule, \`learnings\` lists what's been taught, \`index\` builds a SCIP index for precise blast radius.`;
+Other tools: \`report\` audits your protocol coverage deterministically (pass \`keptIds\`; it sees which exports you actually inspected and which floor findings got an explicit fate) and renders the offline HTML deliverable, \`mute\` silences a rule, \`learnings\` lists what's been taught, \`index\` builds a SCIP index for precise blast radius.`;
 
 const server = new McpServer({ name: "splus", version: VERSION }, { instructions: SERVER_INSTRUCTIONS });
 
@@ -278,7 +285,7 @@ function discoveryDirective(files: string[], changedSymbols: string[] = []): str
     "4. VERIFY — before posting anything, re-read each candidate's cited line and try to REFUTE it. Drop any you can't defend (already handled nearby, speculative, the line doesn't actually demonstrate it). A wrong comment costs more than a missed nit.",
     "5. REPORT — the survivors as must-fix / concern / nit with file:line and a concrete fix. Never invent a finding; every claim cites a real line.",
     "6. TEACH — `dismiss <id>` when the user agrees something is noise, `accept <id>` when they act on a real one — Splus learns this repo both ways.",
-    "7. RENDER — the deliverable that ends the review: call the `report` tool, fill the returned HTML template with the verdict + your verified survivors + the file-level impact graph, and write `splus-report.html`. One self-contained, offline file — the artifact a dev keeps next to the diff.",
+    "7. RENDER — the deliverable that ends the review: call the `report` tool with `keptIds` (the floor ids your verified review keeps). Its response OPENS with a deterministic protocol audit — computed from this session's actual tool calls — certifying every changed export above was `inspect`ed and every floor finding got an explicit fate (kept / dismissed / accepted). Close any gap it lists, then fill the returned HTML template with the verdict + your verified survivors + the file-level impact graph, and write `splus-report.html`. One self-contained, offline file — the artifact a dev keeps next to the diff.",
   ].join("\n");
 }
 
@@ -411,6 +418,7 @@ server.registerTool(
     // this repo (exact, rule-mute, or semantically similar). Best-effort.
     let suppressed: SuppressedFinding[] = [];
     let reinforcedIds: string[] = [];
+    let revalidations: Array<{ id: string; reason: string }> = [];
     if (applyLearnings !== false) {
       try {
         const store = new FileSuppressionStore(learningsPath(repo));
@@ -418,6 +426,7 @@ server.registerTool(
         report = withFindings(report, r.kept, r.suppressed.length);
         suppressed = r.suppressed;
         reinforcedIds = r.reinforced.map((x) => x.id);
+        revalidations = r.revalidations;
       } catch {
         /* never block a review on the suppression store */
       }
@@ -426,10 +435,18 @@ server.registerTool(
       reinforcedIds.length > 0
         ? `\n\nReinforced (resemble findings this repo previously confirmed real — surface these first): ${reinforcedIds.join(", ")}`
         : "";
+    // Suppression decay: these findings were dismissed long enough ago that the
+    // learning aged out — they resurface ONCE for re-validation, never silently.
+    const revalidationNote =
+      revalidations.length > 0
+        ? `\n\nRe-validation (aged suppressions resurfaced — confirm each is still noise and re-dismiss, or treat it as real): ${revalidations
+            .map((x) => `${x.id} — ${x.reason}`)
+            .join("; ")}`
+        : "";
     const preciseNote = preciseNotes.length ? `\n\n${preciseNotes.join("\n")}` : "";
 
     const payload = toAgentReport(report, suppressed);
-    const body = `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(payload, null, 2)}${reinforcedNote}${preciseNote}`;
+    const body = `${summaryLine(report, suppressed.length)}\n\n${JSON.stringify(payload, null, 2)}${reinforcedNote}${revalidationNote}${preciseNote}`;
     // Deterministic AIM for the contract-trace stage: which exported symbols the
     // diff actually touches (engine exports ∩ hunks). Best-effort and capped —
     // an engine hiccup or a huge change surface must never block the review.
@@ -440,6 +457,14 @@ server.registerTool(
     } catch {
       /* aim is enrichment, never load-bearing */
     }
+    // Open the protocol-audit ledger for this review: the floor ids the agent
+    // was handed + the changed-export contracts it owes traces for. `inspect`,
+    // `dismiss`, and `accept` record into it; `report` audits it.
+    startLedger(
+      repo,
+      report.findings.map((f) => f.id),
+      changedSymbols,
+    );
     // The handoff, and the whole product: read the repo contract first, ground the
     // agent with the deterministic floor, then drive it through the protocol. The
     // directive is ALWAYS appended — there is no other path, no key, no headless
@@ -482,8 +507,11 @@ server.registerTool(
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
   async ({ kind, target, file, root }) => {
+    const repo = rootOf(root);
     try {
-      const value = await engineInspect({ root: rootOf(root), kind: kind as InspectKind, target, file });
+      const value = await engineInspect({ root: repo, kind: kind as InspectKind, target, file });
+      // A successful interrogation counts toward the protocol audit.
+      recordInspect(repo, kind, target);
       return ok(JSON.stringify(value, null, 2));
     } catch (e) {
       return fail(`inspect failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -521,6 +549,9 @@ server.registerTool(
       const cfg = loadSplusConfig(repo);
       const policy = applyPolicy(report.findings, cfg);
       const filtered = withFindings(report, policy.kept, report.summary.suppressed);
+      // Mid-review re-grounding: whatever the agent saw here joins the floor it
+      // must account for in the protocol audit.
+      extendFloor(repo, filtered.findings.map((f) => f.id));
       return ok(JSON.stringify(toAgentReport(filtered, []), null, 2));
     } catch (e) {
       return fail(`Could not run the Splus engine: ${e instanceof Error ? e.message : String(e)}.`);
@@ -565,17 +596,31 @@ server.registerTool(
   {
     title: "Render the review as a standalone HTML report",
     description:
-      "The FINAL STEP of the review flow. Returns a self-contained HTML template (all CSS/JS + the " +
-      "impact graph inline — no CDN, opens offline) plus fill instructions. After you finish the " +
-      "review + verification pass, call this, fill the marked ⟦SLOT⟧ regions with the verdict, your " +
-      "verified findings, and the file-level impact graph, and write `splus-report.html`. The graph " +
-      "(files = nodes, impact = edges, hover traces blast radius, click drills into a module) is the " +
-      "centerpiece. The template is fixed/locked — you supply data only, not styling. The result is " +
-      "the shareable artifact a dev keeps next to the diff.",
-    inputSchema: {},
+      "The FINAL STEP of the review flow. Opens with a DETERMINISTIC PROTOCOL AUDIT — computed from " +
+      "this session's actual tool calls — that certifies every changed export was `inspect`ed and " +
+      "every floor finding got an explicit fate (kept / dismissed / accepted); pass `keptIds` (the " +
+      "floor ids your verified review keeps) so floor coverage can be certified, and close any gap " +
+      "the audit lists before writing the file. Then returns a self-contained HTML template (all " +
+      "CSS/JS + the impact graph inline — no CDN, opens offline) plus fill instructions. Fill the " +
+      "marked ⟦SLOT⟧ regions with the verdict, your verified findings, and the file-level impact " +
+      "graph, and write `splus-report.html`. The graph (files = nodes, impact = edges, hover traces " +
+      "blast radius, click drills into a module) is the centerpiece. The template is fixed/locked — " +
+      "you supply data only, not styling. The result is the shareable artifact a dev keeps next to " +
+      "the diff.",
+    inputSchema: {
+      root: z.string().optional().describe("Repo root (default: server CWD)."),
+      keptIds: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "The floor finding ids your VERIFIED report keeps. The audit certifies every floor " +
+            "finding was explicitly kept, dismissed, or accepted — ids you neither keep nor teach " +
+            "are flagged as unaccounted.",
+        ),
+    },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
-  async () => ok(reportInstructions()),
+  async ({ root, keptIds }) => ok(`${auditBlock(rootOf(root), keptIds)}\n\n${reportInstructions()}`),
 );
 
 // --- dismiss ---------------------------------------------------------------
@@ -629,6 +674,7 @@ server.registerTool(
       text: found ? candidateText(found) : "",
       scope: "fingerprint",
     });
+    recordResolution(repo, id, "dismissed");
 
     return ok(
       found
@@ -694,6 +740,7 @@ server.registerTool(
     if (memText) {
       await new FileMemoryStore(memoryPath(repo)).remember({ kind: "accepted", text: memText });
     }
+    recordResolution(repo, id, "accepted");
 
     return ok(
       `Accepted ${id}. Splus will reinforce findings like this one — and \`recall\` it on future reviews.`,

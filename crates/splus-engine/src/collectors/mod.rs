@@ -3,8 +3,11 @@
 
 pub mod blast_radius;
 pub mod complexity;
+pub mod coverage;
 pub mod external;
 pub mod heuristics;
+pub mod history;
+pub mod mutation;
 pub mod secrets;
 
 use crate::diff::{self, DiffMode};

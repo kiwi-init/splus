@@ -53,10 +53,19 @@ export interface Decision {
   /** Positive memory: similar to a finding a reviewer confirmed real (accepted). */
   reinforce?: boolean;
   reinforcement?: number;
+  /**
+   * The only suppression that matched has aged out: the finding is KEPT and
+   * resurfaced once for re-validation. Dismissing it again refreshes the
+   * learning for another TTL window.
+   */
+  revalidate?: boolean;
 }
 
 export interface SuppressionStore {
-  evaluate(candidates: Candidate[], opts?: { embedder?: Embedder }): Promise<Map<string, Decision>>;
+  evaluate(
+    candidates: Candidate[],
+    opts?: { embedder?: Embedder; now?: string },
+  ): Promise<Map<string, Decision>>;
   record(entry: Omit<DismissedEntry, "at" | "signal"> & { signal?: DismissedEntry["signal"]; at?: string }): Promise<void>;
   list(): Promise<DismissedEntry[]>;
 }
@@ -67,6 +76,27 @@ const SAME_RULE_THRESHOLD = 0.82;
 const CROSS_RULE_THRESHOLD = 0.93;
 // Reinforcement is more liberal: a false boost only nudges ranking, never hides.
 const REINFORCE_THRESHOLD = 0.8;
+
+/**
+ * Suppression decay: a dismissal is a snapshot of one moment's judgment, and the
+ * code around it keeps moving. Aged-out dismissals stop suppressing and the
+ * finding resurfaces ONCE for re-validation (dismiss again to refresh — `record`
+ * replaces the entry with a fresh timestamp). Semantic matches decay faster than
+ * exact ones because generalization is where a stale judgment does real damage:
+ * an old "this is a test fixture" wave-off can otherwise hide a genuinely new
+ * variant forever. Rule mutes never decay — muting a rule is an explicit,
+ * config-level act (and `SPLUS.md` `mute:` lines are the durable home for it).
+ */
+export const EXACT_TTL_DAYS = 180;
+export const SEMANTIC_TTL_DAYS = 90;
+
+function ageDays(at: string, now: string): number {
+  const a = Date.parse(at);
+  const n = Date.parse(now);
+  // Malformed timestamps never decay (resurfacing on bad data would be noise).
+  if (!Number.isFinite(a) || !Number.isFinite(n)) return 0;
+  return (n - a) / 86_400_000;
+}
 
 /**
  * Security findings (secrets, injection/eval sinks) are exempt from the semantic
@@ -86,28 +116,50 @@ function semanticEligible(ruleId: string): boolean {
 }
 
 interface Indexes {
-  fpSet: Set<string>;
+  /** Dismissed fingerprint → ISO timestamp of the (latest) dismissal. */
+  fpMap: Map<string, string>;
   ruleSet: Set<string>;
-  semanticNeg: Array<{ rule_id: string; vec: number[] }>;
+  semanticNeg: Array<{ rule_id: string; vec: number[]; at: string }>;
   semanticPos: Array<{ rule_id: string; vec: number[] }>;
 }
 
-function decide(candidate: Candidate, idx: Indexes, embedder?: Embedder): Decision {
-  if (idx.fpSet.has(candidate.fingerprint)) {
-    return { suppress: true, kind: "exact", reason: "previously dismissed (exact match)" };
+function decide(candidate: Candidate, idx: Indexes, embedder?: Embedder, now?: string): Decision {
+  const nowIso = now ?? new Date().toISOString();
+  let stale: { kind: "exact" | "semantic"; at: string } | null = null;
+
+  const exactAt = idx.fpMap.get(candidate.fingerprint);
+  if (exactAt !== undefined) {
+    if (ageDays(exactAt, nowIso) <= EXACT_TTL_DAYS) {
+      return { suppress: true, kind: "exact", reason: "previously dismissed (exact match)" };
+    }
+    stale = { kind: "exact", at: exactAt };
   }
+  // Rule mutes are explicit, config-level acts — they never decay.
   if (idx.ruleSet.has(candidate.rule_id)) {
     return { suppress: true, kind: "rule", reason: `rule '${candidate.rule_id}' is muted for this repo` };
   }
   const vec = embedder ? embedder.embed(candidate.text) : null;
-  // Negative memory: suppress noise like something dismissed before.
+  // Negative memory: suppress noise like something dismissed before. Only
+  // entries inside the semantic TTL may suppress; the best aged-out match is
+  // remembered so the finding resurfaces with a re-validation reason instead.
   if (vec && semanticEligible(candidate.rule_id) && idx.semanticNeg.length > 0) {
     let best = 0;
     let bestSameRule = 0;
+    let staleBest = 0;
+    let staleBestSameRule = 0;
+    let staleAt = "";
     for (const e of idx.semanticNeg) {
       const sim = cosine(vec, e.vec);
-      if (sim > best) best = sim;
-      if (e.rule_id === candidate.rule_id && sim > bestSameRule) bestSameRule = sim;
+      if (ageDays(e.at, nowIso) <= SEMANTIC_TTL_DAYS) {
+        if (sim > best) best = sim;
+        if (e.rule_id === candidate.rule_id && sim > bestSameRule) bestSameRule = sim;
+      } else {
+        if (sim > staleBest) {
+          staleBest = sim;
+          staleAt = e.at;
+        }
+        if (e.rule_id === candidate.rule_id && sim > staleBestSameRule) staleBestSameRule = sim;
+      }
     }
     if (bestSameRule >= SAME_RULE_THRESHOLD || best >= CROSS_RULE_THRESHOLD) {
       return {
@@ -117,6 +169,20 @@ function decide(candidate: Candidate, idx: Indexes, embedder?: Embedder): Decisi
         reason: `similar to a previously dismissed finding (${Math.round(best * 100)}%)`,
       };
     }
+    if (!stale && (staleBestSameRule >= SAME_RULE_THRESHOLD || staleBest >= CROSS_RULE_THRESHOLD)) {
+      stale = { kind: "semantic", at: staleAt };
+    }
+  }
+  if (stale) {
+    const ttl = stale.kind === "exact" ? EXACT_TTL_DAYS : SEMANTIC_TTL_DAYS;
+    return {
+      suppress: false,
+      revalidate: true,
+      kind: stale.kind,
+      reason:
+        `a matching suppression aged out (dismissed ${stale.at.slice(0, 10)}, TTL ${ttl}d) — ` +
+        `resurfacing once for re-validation; dismiss again if still noise`,
+    };
   }
   // Positive memory: reinforce signal like something a reviewer confirmed real.
   // Not gated by `semanticEligible` — reinforcing a real security finding is safe
@@ -135,9 +201,9 @@ function decide(candidate: Candidate, idx: Indexes, embedder?: Embedder): Decisi
 }
 
 function buildIndexes(entries: DismissedEntry[], embedder?: Embedder): Indexes {
-  const fpSet = new Set<string>();
+  const fpMap = new Map<string, string>();
   const ruleSet = new Set<string>();
-  const semanticNeg: Array<{ rule_id: string; vec: number[] }> = [];
+  const semanticNeg: Array<{ rule_id: string; vec: number[]; at: string }> = [];
   const semanticPos: Array<{ rule_id: string; vec: number[] }> = [];
   for (const e of entries) {
     if (e.signal === "accepted") {
@@ -145,12 +211,17 @@ function buildIndexes(entries: DismissedEntry[], embedder?: Embedder): Indexes {
       if (embedder) semanticPos.push({ rule_id: e.rule_id, vec: embedder.embed(e.text) });
       continue;
     }
-    if (e.scope === "rule") ruleSet.add(e.rule_id);
-    else fpSet.add(e.fingerprint);
+    if (e.scope === "rule") {
+      ruleSet.add(e.rule_id);
+    } else {
+      // Latest dismissal wins (re-dismissing refreshes the TTL).
+      const prev = fpMap.get(e.fingerprint);
+      if (prev === undefined || e.at > prev) fpMap.set(e.fingerprint, e.at);
+    }
     // Every dismissed entry contributes to semantic matching (catches near-dups).
-    if (embedder) semanticNeg.push({ rule_id: e.rule_id, vec: embedder.embed(e.text) });
+    if (embedder) semanticNeg.push({ rule_id: e.rule_id, vec: embedder.embed(e.text), at: e.at });
   }
-  return { fpSet, ruleSet, semanticNeg, semanticPos };
+  return { fpMap, ruleSet, semanticNeg, semanticPos };
 }
 
 // ---------------------------------------------------------------------------
@@ -187,10 +258,13 @@ export class FileSuppressionStore implements SuppressionStore {
     return this.load().entries;
   }
 
-  async evaluate(candidates: Candidate[], opts?: { embedder?: Embedder }): Promise<Map<string, Decision>> {
+  async evaluate(
+    candidates: Candidate[],
+    opts?: { embedder?: Embedder; now?: string },
+  ): Promise<Map<string, Decision>> {
     const idx = buildIndexes(this.load().entries, opts?.embedder);
     const out = new Map<string, Decision>();
-    for (const c of candidates) out.set(c.fingerprint, decide(c, idx, opts?.embedder));
+    for (const c of candidates) out.set(c.fingerprint, decide(c, idx, opts?.embedder, opts?.now));
     return out;
   }
 
@@ -242,26 +316,40 @@ export interface ReinforcedFinding {
   reinforcement: number;
 }
 
+/** A kept finding whose only matching suppression aged out (resurfaced once). */
+export interface RevalidationFinding {
+  id: string;
+  reason: string;
+}
+
 /**
- * Partition a report's findings into kept vs learned-suppressed, and flag the
- * kept findings that positive memory reinforced (similar to a confirmed-real one).
+ * Partition a report's findings into kept vs learned-suppressed, flag the kept
+ * findings that positive memory reinforced (similar to a confirmed-real one),
+ * and surface the ones that only escaped suppression because the matching
+ * dismissal aged out (re-validation candidates).
  */
 export async function applySuppression(
   report: Report,
   store: SuppressionStore,
-  opts?: { embedder?: Embedder },
-): Promise<{ kept: Finding[]; suppressed: SuppressedFinding[]; reinforced: ReinforcedFinding[] }> {
+  opts?: { embedder?: Embedder; now?: string },
+): Promise<{
+  kept: Finding[];
+  suppressed: SuppressedFinding[];
+  reinforced: ReinforcedFinding[];
+  revalidations: RevalidationFinding[];
+}> {
   const embedder = opts?.embedder ?? hashEmbedder();
   const candidates: Candidate[] = report.findings.map((f) => ({
     fingerprint: f.id,
     rule_id: f.rule_id,
     text: candidateText(f),
   }));
-  const decisions = await store.evaluate(candidates, { embedder });
+  const decisions = await store.evaluate(candidates, { embedder, now: opts?.now });
 
   const kept: Finding[] = [];
   const suppressed: SuppressedFinding[] = [];
   const reinforced: ReinforcedFinding[] = [];
+  const revalidations: RevalidationFinding[] = [];
   for (const f of report.findings) {
     const d = decisions.get(f.id);
     if (d?.suppress) {
@@ -269,9 +357,10 @@ export async function applySuppression(
     } else {
       kept.push(f);
       if (d?.reinforce) reinforced.push({ id: f.id, reinforcement: d.reinforcement ?? 0 });
+      if (d?.revalidate) revalidations.push({ id: f.id, reason: d.reason });
     }
   }
-  return { kept, suppressed, reinforced };
+  return { kept, suppressed, reinforced, revalidations };
 }
 
 // Compounding review memory (accept/note → recall).

@@ -16,7 +16,7 @@ API key and no cloud step; the coding agent connected over stdio is the reviewer
 | [`accept`](#accept) | yes | Teach Splus a finding was **real** (reinforces; becomes recallable). |
 | [`mute`](#mute) | yes | Silence an entire rule for this repo. |
 | [`learnings`](#learnings) | no | List what's been learned on this repo. |
-| [`report`](#report) | no | Render the review as a standalone offline HTML report. |
+| [`report`](#report) | no | Audit protocol coverage deterministically, then render the offline HTML report. |
 | [`index`](#index) | yes | Build a SCIP index for compiler-grade blast radius. |
 
 ## Typical flow
@@ -70,7 +70,17 @@ reasoning. Run the protocol; don't relay.
 **Returns**: a one-line summary, then JSON with `summary`, `findings[]` (each with
 `id`, `file`, `line`, `severity`, `tier`, `ruleId`, `category`, `anchor`,
 `confidence`, `suggestion`, `blastRadius`), `suppressed[]`, any `reinforced` ids,
-and the discovery directive that drives your review.
+any **re-validation** ids (suppressions that aged out — exact dismissals after
+180 days, semantic matches after 90 — resurface once with the reason; re-dismiss
+to refresh, rule mutes never decay), and the discovery directive that drives
+your review.
+
+The floor itself draws on every artifact already on disk: alongside secrets,
+sinks, blast radius, and complexity deltas, the engine reads **coverage reports**
+(lcov / Cobertura / Istanbul / Go coverprofile → untested added lines),
+**mutation reports** (Stryker / cargo-mutants → surviving mutants on added
+lines), both guarded against stale reports, and mines **git history** (bug-fix
+churn, frequently co-changed files missing from the diff).
 
 ```jsonc
 // review(mode: "staged")
@@ -237,11 +247,21 @@ List everything learned on this repo (dismissals, mutes, accepts) from
 
 ## `report`
 
-The final step of the review flow. Returns a self-contained HTML template (all
-CSS/JS inline, opens offline) plus fill instructions; you fill the marked slots
-with the verdict, your verified findings, and the file-level impact graph, and
-write `splus-report.html` — the shareable artifact a dev keeps next to the diff.
-Read-only; takes no parameters.
+The final step of the review flow. The response **opens with a deterministic
+protocol audit**, computed from this session's actual tool calls: which changed
+exported symbols were never interrogated via `inspect` (callers / blast_radius),
+and which floor finding ids got no explicit fate (kept / dismissed / accepted).
+Pass `keptIds` so floor coverage can be certified; close any gap the audit lists
+before writing the file. Then returns a self-contained HTML template (all CSS/JS
+inline, opens offline) plus fill instructions; you fill the marked slots with the
+verdict, your verified findings, and the file-level impact graph, and write
+`splus-report.html` — the shareable artifact a dev keeps next to the diff.
+Read-only.
+
+| Param | Type | Description |
+|---|---|---|
+| `root` | string | Repo root. |
+| `keptIds` | string[] | The floor finding ids your verified report keeps — anything neither kept nor taught (`dismiss`/`accept`) is flagged as unaccounted. |
 
 ---
 

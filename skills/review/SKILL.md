@@ -41,6 +41,12 @@ offer to scaffold one (see the `prefs` skill) — don't block on it.
 Call `review` (mode: `working` | `staged` | `base` | `all`; `precise:true` for
 compiler-grade blast radius). You get: the contract, the deterministic finding
 floor, and a directive. The floor is where you *start*, not where you stop.
+Beyond secrets/sinks/blast-radius/complexity it includes, when the artifacts
+exist on disk: **test-adequacy facts** (uncovered added lines from coverage
+reports; surviving mutants from mutation reports — both staleness-guarded) and
+**history facts** (bug-fix churn; a frequently co-changed file missing from the
+diff). Re-validation notes mark findings whose old dismissal aged out — confirm
+each is still noise (re-dismiss) or treat it as real.
 
 ### 2. Investigate — fan out fresh, unbiased reviewers
 **This is the heart, and bias is the enemy.** The context that wrote the code is
@@ -66,11 +72,15 @@ Never let the finder grade its own homework. For the surviving candidates, run a
 distinct refutation pass) following `references/verify.md`: re-read each cited
 line and try to REFUTE the claim. Drop anything that can't be defended.
 
-### 4. Report — the survivors
+### 4. Report — the survivors, audited
 Synthesize the verified findings into must-fix / concern / nit, each with
 `file:line` and a concrete fix. Honor the contract's voice. Then call `report`
-and fill the returned HTML template — the offline artifact the dev keeps next to
-the diff.
+with `keptIds` (the floor ids your verified review keeps). Its response **opens
+with a deterministic protocol audit** computed from this session's actual tool
+calls: changed exports never `inspect`ed, floor findings with no explicit fate
+(kept / dismissed / accepted). The audit can't be talked past — close every gap
+it lists, then fill the returned HTML template — the offline artifact the dev
+keeps next to the diff.
 
 ### 5. Teach — make diligence compound
 - `dismiss <id>` when the user agrees something is noise (generalizes).
@@ -97,5 +107,7 @@ Two disciplines outrank the rest (they decide real-world precision and recall):
 Coverage, not speed. For every changed export, you should have `inspect`ed its
 blast radius and opened the call sites that matter. Every posted finding cites a
 real line and survived a refutation. Every floor finding was explicitly kept or
-suppressed — never silently dropped. That is what a great review looks like; take
-the time it takes.
+suppressed — never silently dropped. This standard is **checked, not trusted**:
+the `report` tool audits it deterministically from the session's tool calls and
+lists what's unaccounted. That is what a great review looks like; take the time
+it takes.

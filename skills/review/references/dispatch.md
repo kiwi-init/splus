@@ -22,7 +22,9 @@ diff get a careful review.
 4. Spawn an **independent** verifier `Task` (the `verify.md` refuter) over the
    candidates. The verifier must be a different agent than any finder.
 5. You synthesize: dedup, signal-budget against `SPLUS.md`, assign tiers, then
-   `report` + teach.
+   `report` (pass `keptIds` — the floor ids your verified review keeps; its
+   deterministic protocol audit lists anything unaccounted, close those gaps
+   first) + teach.
 
 For a large unit, fan out again **by lens** (one sub-agent per lens in
 `lenses.md`), each blind to the others.

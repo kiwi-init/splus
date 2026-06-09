@@ -3,6 +3,36 @@
 All notable changes to Splus. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
+## [1.1.0] — 2026-06-09
+
+Dynamic grounding, history facts, a checkable protocol, and memory that ages.
+
+### Added
+- **Coverage collector** (engine) — reads the coverage report a test run already produced
+  (lcov, Cobertura XML, Istanbul JSON, Go coverprofile; `SPLUS_COVERAGE_FILE` overrides
+  discovery) and emits `tests.uncovered-added-lines` for added lines the report instruments
+  at zero hits. Staleness-guarded: a report older than the file's last edit never speaks.
+- **Mutation adapter** (engine) — reads Stryker `mutation.json` / cargo-mutants
+  `mutants.out/missed.txt` and emits `tests.surviving-mutant` / `tests.mutant-no-coverage`
+  for mutants on added lines: the suite stayed green while the line's behavior changed.
+- **History collector** (engine) — one bounded `git log` walk mines `history.fix-churn`
+  (this file keeps appearing in bug-fix commits) and `history.co-change-missing` (a file
+  that almost always changes with this one is absent from the diff). Skipped in `--all`
+  mode; capped per signal.
+- **Protocol audit** (MCP) — the server now keeps a per-review ledger (floor ids handed
+  out, changed-export contracts, successful `inspect` calls, `dismiss`/`accept` fates).
+  `report` accepts `keptIds` and opens with a deterministic audit: changed exports never
+  interrogated and floor findings with no explicit fate are listed before the deliverable
+  renders. The review standard is now checked, not trusted.
+
+### Changed
+- **Suppression decay** (memory) — exact dismissals age out after 180 days, semantic
+  matches after 90; an aged-out match stops suppressing and the finding resurfaces once
+  with a re-validation note (re-dismiss to refresh). Rule mutes never decay. `review`
+  surfaces resurfaced ids in a `Re-validation` note.
+
+[1.1.0]: https://github.com/kiwi-init/splus/releases/tag/v1.1.0
+
 ## [1.0.0] — 2026-06-06
 
 Initial public release.

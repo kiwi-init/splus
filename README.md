@@ -72,8 +72,16 @@ disciplined reviewer:
   skeptical pass refutes plausible-but-wrong comments before they're ever posted.
 - **Quiet by default** — zero config, and every kept finding earned it; complexity is scored as a
   *delta*, so unchanged code never generates noise.
+- **Dynamically grounded** — reads the artifacts your test runs already produce (lcov / Cobertura /
+  Istanbul / Go coverage, Stryker / cargo-mutants mutation reports): untested added lines and
+  surviving mutants become deterministic floor findings, staleness-guarded so a stale report can
+  never produce a false claim. Git history adds fix-churn and missing co-change signals.
+- **Checked, not trusted** — the `report` step runs a deterministic protocol audit over the
+  session's actual tool calls: changed exports that were never `inspect`ed and floor findings with
+  no explicit fate are called out before the deliverable renders.
 - **Learns both ways** — per-repo memory suppresses the noise you `dismiss` *and* reinforces the
-  findings you `accept`, so the review fits your team over time.
+  findings you `accept`, so the review fits your team over time; aged dismissals resurface once
+  for re-validation, so a stale wave-off can't hide a new bug forever.
 
 Nothing leaves your machine — there's no cloud step and no API key. The coding agent already in
 your editor is the reviewer.
@@ -94,7 +102,7 @@ Your agent connects to the local server and calls these:
 | `accept`      | Teach Splus a finding was real — reinforces, and becomes recallable.        |
 | `mute`        | Mute an entire rule for this repo.                                          |
 | `learnings`   | List what's been learned on this repo.                                      |
-| `report`      | Render the review as a standalone offline HTML report.                      |
+| `report`      | Deterministic protocol audit (uninspected exports, unaccounted floor findings), then the offline HTML report. |
 | `index`       | Build a SCIP index locally for the precise (compiler-grade) blast-radius tier. |
 
 Agent-led, one flow: `review` injects the repo's `SPLUS.md` contract and returns the grounded
@@ -143,10 +151,10 @@ agent flow over MCP, where the agent in the chair is the reviewer.
 |---|---|---|
 | **0 Guard** | size/generated/vendored circuit breakers | bounding cost on huge/monorepo diffs |
 | **1 Diff** | `git` clean-as-you-code added-line set | never touching legacy/unchanged code |
-| **2 Collectors** | secrets (regex+entropy) · native security sinks (injection/deser/shell/TLS) · diff heuristics · optional external SARIF (Semgrep/ast-grep/gitleaks/OSV, offline) | high-confidence findings with no LLM |
+| **2 Collectors** | secrets (regex+entropy) · native security sinks (injection/deser/shell/TLS) · diff heuristics · test adequacy (coverage + mutation reports already on disk, staleness-guarded) · git history (fix-churn, missing co-change partner) · optional external SARIF (Semgrep/ast-grep/gitleaks/OSV, offline) | high-confidence findings with no LLM |
 | **3 Blast radius** | cross-file caller graph for changed exports — **precise (SCIP, compiler-grade)** where an `index.scip` exists, name+import heuristic otherwise | structured impact facts, not guesses |
 | **4 Metrics** | cognitive-complexity **delta** base→head — delta-only, so unchanged code stays silent (`--no-metrics` to disable) | maintainability signal with zero config |
-| **5 Memory** | per-repo learned filter — suppress what you `dismiss` (exact · rule · semantic) · reinforce what you `accept` | dropping known noise + ranking known signal |
+| **5 Memory** | per-repo learned filter — suppress what you `dismiss` (exact · rule · semantic) · reinforce what you `accept` · aged dismissals resurface once for re-validation (semantic 90d, exact 180d; mutes never decay) | dropping known noise + ranking known signal |
 
 Every finding carries an **anchor** (`secret` / `metric` / `graph-edge` / `sarif` /
 `heuristic`) and a stable fingerprint. Cross-file claims always show an explicit **resolution

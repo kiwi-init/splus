@@ -69,6 +69,17 @@ The pipeline (`crates/splus-engine/src/pipeline.rs`):
    - `secrets` — regex + Shannon-entropy gate (AWS, GitHub, private keys, …).
    - `heuristics` — language-gated syntactic rules incl. **native security sinks** (unsafe `yaml.load`/`pickle`/`eval`/`shell=True`, SQL string-interpolation, TLS-verify-off, JS SQL templates, `dangerouslySetInnerHTML`).
    - `external` — best-effort SARIF adapters **if present on PATH**: gitleaks, osv-scanner, semgrep (offline only), ast-grep.
+   - `coverage` — **dynamic grounding without execution**: reads the coverage report a test
+     run already produced (lcov / Cobertura XML / Istanbul JSON / Go coverprofile, or
+     `SPLUS_COVERAGE_FILE`) and flags added lines the report instruments at zero hits.
+     Staleness-guarded: a report older than the file's last edit is never trusted.
+   - `mutation` — same idea for mutation testing (Stryker `mutation.json`, cargo-mutants
+     `missed.txt`): a surviving mutant on an added line means the suite stayed green while
+     the line's behavior changed — the strongest test-adequacy fact a reviewer can cite.
+   - `history` — one bounded `git log --name-only` walk (12 months, no merges) mines two
+     reviewer instincts as facts: **fix-churn** (this file keeps appearing in bug-fix
+     commits) and **co-change-missing** (a file that almost always changes with this one
+     is absent from the diff). Skipped in `--all` mode; capped per signal.
    - `blast_radius` — cross-file caller graph for changed exports. **Precise (SCIP, compiler-grade)** when an `index.scip` exists; name+import heuristic otherwise.
    - `complexity` — cognitive-complexity **delta** base→head. On by default; the delta-only scoring keeps unchanged code silent (`--no-metrics` to disable).
 3. **Dedup → severity sort → tier** (`must-fix` / `concern` / `nit`).
@@ -113,12 +124,26 @@ flowchart LR
   - **remediate** — a concrete fix per kept finding.
   - **verify** — an adversarial pass that **refutes** plausible-but-wrong findings and drops them. This is the precision gate that keeps discovery from leaking noise.
 
+The protocol is **checked, not trusted**: the MCP server keeps a per-review
+ledger of what actually happened — the floor ids `review` handed out, the
+changed-export contracts it demanded traced, every successful `inspect` call,
+every `dismiss`/`accept`. The `report` tool opens with a deterministic audit of
+that ledger (changed exports never interrogated, floor findings with no explicit
+fate) so a hasty pass can't quietly skip the discipline.
+
 ## Memory (`dismiss` / `accept`)
 
 Stored per-repo in `.splus-cache/learnings.json` (checked into your repo). Negative
 memory suppresses noise you `dismiss` (exact · rule · semantic); positive memory
 reinforces findings you `accept`. Security findings are exempt from *semantic*
 suppression — a dismissed test fixture can never silence a real secret.
+
+Suppressions also **decay**: a dismissal is one moment's judgment, and the code
+keeps moving. Exact dismissals age out after 180 days, semantic matches after 90
+(generalization is where a stale judgment does real damage); an aged-out match
+stops suppressing and the finding resurfaces **once** with a re-validation note —
+re-dismissing refreshes the learning. Rule mutes never decay (muting a rule is an
+explicit, config-level act).
 
 ```mermaid
 flowchart LR

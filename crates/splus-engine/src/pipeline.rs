@@ -1,8 +1,11 @@
 //! Review orchestration: circuit breakers → collectors → diff-filter → dedup →
 //! severity sort → summary. The deterministic spine.
 
+use crate::collectors::coverage::Coverage;
 use crate::collectors::external::External;
 use crate::collectors::heuristics::Heuristics;
+use crate::collectors::history::History;
+use crate::collectors::mutation::Mutation;
 use crate::collectors::secrets::Secrets;
 use crate::collectors::{Collector, ReviewContext};
 use crate::diff::{self, DiffMode};
@@ -75,6 +78,20 @@ impl Engine {
             run_deep = false;
         }
 
+        // Surface which dynamic-grounding artifacts are active (honest coverage).
+        if let Some(r) = crate::collectors::coverage::find_report(&self.root) {
+            notes.push(format!(
+                "Coverage report: {} — added-line test-coverage facts active.",
+                r.label
+            ));
+        }
+        for r in crate::collectors::mutation::find_reports(&self.root) {
+            notes.push(format!(
+                "Mutation report: {} — surviving-mutant facts active.",
+                r.label
+            ));
+        }
+
         // Load the SCIP precise tier if an index is present.
         let scip = self.resolve_scip().and_then(|p| crate::analysis::scip::ScipGraph::load(&p));
         if let Some(g) = &scip {
@@ -93,8 +110,14 @@ impl Engine {
 
         // Collector set. Fast collectors always run; deep (tree-sitter) tier is
         // appended by `deep_collectors` once that module lands.
-        let mut collectors: Vec<Box<dyn Collector>> =
-            vec![Box::new(Secrets), Box::new(Heuristics), Box::new(External)];
+        let mut collectors: Vec<Box<dyn Collector>> = vec![
+            Box::new(Secrets),
+            Box::new(Heuristics),
+            Box::new(External),
+            Box::new(Coverage),
+            Box::new(Mutation),
+            Box::new(History),
+        ];
         if run_deep {
             collectors.extend(deep_collectors(self.metrics));
         }
