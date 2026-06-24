@@ -26,6 +26,7 @@
  *   floor       — re-ground on the deterministic finding floor for a scope (no directive)
  *   preferences — show the merged SPLUS.md contract (repo + ~/.splus)
  *   report      — render the review as a standalone offline HTML report (final step)
+ *   prReview    — assemble a diff-anchored GitHub PR review payload (the PR-native deliverable)
  *   dismiss     — teach Splus a finding is noise (generalizes semantically)
  *   accept      — teach Splus a finding was real (reinforces + stores recallable memory)
  *   note        — remember a discovered repo convention (→ recall)
@@ -43,6 +44,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   applyPolicy,
+  buildReviewPayload,
   changedExportedSymbols,
   diffText,
   inspect as engineInspect,
@@ -54,6 +56,7 @@ import {
   type InspectKind,
   type Report,
   type SplusConfig,
+  type VerifiedFinding,
 } from "@splus/shared";
 import {
   applySuppression,
@@ -94,7 +97,7 @@ When the user asks you to review code:
 3. VERIFY every finding by trying to refute it against the cited line. Drop any you can't defend. Then REPORT survivors as must-fix / concern / nit with file:line and a concrete fix.
 4. TEACH the repo: \`dismiss <id>\` for noise, \`accept <id>\` for real, \`note\` to record a convention. \`preferences\` shows the active \`SPLUS.md\`; \`recall\` surfaces what was learned here before.
 
-Other tools: \`report\` audits your protocol coverage deterministically (pass \`keptIds\`; it sees which exports you actually inspected and which floor findings got an explicit fate) and renders the offline HTML deliverable, \`mute\` silences a rule, \`learnings\` lists what's been taught, \`index\` builds a SCIP index for precise blast radius.`;
+Other tools: \`report\` audits your protocol coverage deterministically (pass \`keptIds\`; it sees which exports you actually inspected and which floor findings got an explicit fate) and renders the offline HTML deliverable, \`prReview\` assembles a diff-anchored GitHub PR review payload to post with \`gh\` (the PR-native deliverable — reviewing a pull request), \`mute\` silences a rule, \`learnings\` lists what's been taught, \`index\` builds a SCIP index for precise blast radius.`;
 
 const server = new McpServer({ name: "splus", version: VERSION }, { instructions: SERVER_INSTRUCTIONS });
 
@@ -285,7 +288,7 @@ function discoveryDirective(files: string[], changedSymbols: string[] = []): str
     "4. VERIFY — before posting anything, re-read each candidate's cited line and try to REFUTE it. Drop any you can't defend (already handled nearby, speculative, the line doesn't actually demonstrate it). A wrong comment costs more than a missed nit.",
     "5. REPORT — the survivors as must-fix / concern / nit with file:line and a concrete fix. Never invent a finding; every claim cites a real line.",
     "6. TEACH — `dismiss <id>` when the user agrees something is noise, `accept <id>` when they act on a real one — Splus learns this repo both ways.",
-    "7. RENDER — the deliverable that ends the review: call the `report` tool with `keptIds` (the floor ids your verified review keeps). Its response OPENS with a deterministic protocol audit — computed from this session's actual tool calls — certifying every changed export above was `inspect`ed and every floor finding got an explicit fate (kept / dismissed / accepted). Close any gap it lists, then fill the returned HTML template with the verdict + your verified survivors + the file-level impact graph, and write `splus-report.html`. One self-contained, offline file — the artifact a dev keeps next to the diff.",
+    "7. RENDER — the deliverable that ends the review: call the `report` tool with `keptIds` (the floor ids your verified review keeps). Its response OPENS with a deterministic protocol audit — computed from this session's actual tool calls — certifying every changed export above was `inspect`ed and every floor finding got an explicit fate (kept / dismissed / accepted). Close any gap it lists, then fill the returned HTML template with the verdict + your verified survivors + the file-level impact graph, and write `splus-report.html`. One self-contained, offline file — the artifact a dev keeps next to the diff. When the review IS a GitHub pull request (you reviewed `mode:base` against the PR base), the PR-native deliverable is `prReview` instead: it anchors your verified survivors to the diff and hands back the `gh api` payload to post them as an actual PR review (inline comments + verdict). Still close the audit first.",
   ].join("\n");
 }
 
@@ -623,6 +626,110 @@ server.registerTool(
   async ({ root, keptIds }) => ok(`${auditBlock(rootOf(root), keptIds)}\n\n${reportInstructions()}`),
 );
 
+// --- prReview (land the review on a GitHub PR) -----------------------------
+
+/**
+ * Render the unanchored findings — those whose line isn't in the diff (an
+ * unchanged caller the change breaks, a whole-file concern) — as a deterministic
+ * markdown appendix. They can't be inline comments, so they ride in the summary
+ * body; never silently dropped.
+ */
+function unanchoredMarkdown(unanchored: VerifiedFinding[]): string {
+  if (!unanchored.length) return "";
+  const rows = unanchored
+    .map((f) => `- **${f.tier}** \`${f.file}:${f.line}\` — ${f.body.replace(/\n+/g, " ")}`)
+    .join("\n");
+  return `\n\n### Findings outside the diff\n${rows}`;
+}
+
+server.registerTool(
+  "prReview",
+  {
+    title: "Assemble a GitHub PR review payload",
+    description:
+      "The PR-native deliverable: turn your VERIFIED findings into a ready-to-post GitHub Pull " +
+      "Request Reviews API payload, each anchored to the right diff line. YOU are still the driver — " +
+      "this does NOT touch the network or shell `gh`; it recomputes the diff for `mode`/`base` " +
+      "(use the SAME scope you reviewed), resolves each finding to a RIGHT-side inline anchor (or " +
+      "folds it into the summary as an out-of-diff note — never dropped), picks the review event " +
+      "from the must-fix count (must-fix>0 → REQUEST_CHANGES; else COMMENT, or APPROVE when " +
+      "`approveWhenClean`), and tags each comment with a hidden id marker so a re-review can dedup. " +
+      "Returns the exact JSON to POST and the `gh api` command to post it. Run AFTER you've verified " +
+      "every survivor — this is the report's PR-native sibling, not a substitute for the protocol.",
+    inputSchema: {
+      root: z.string().optional().describe("Repo root (default: server CWD)."),
+      mode: z
+        .enum(["working", "staged", "base", "all"])
+        .optional()
+        .describe("The scope you reviewed — used to recompute the diff the anchors resolve against (default 'working'; a PR is 'base')."),
+      base: z.string().optional().describe("Base git ref — required when mode='base' (the PR base)."),
+      summary: z.string().describe("The review summary body (your prose; markdown + mermaid render on GitHub)."),
+      approveWhenClean: z
+        .boolean()
+        .optional()
+        .describe("When there are no must-fix findings, APPROVE rather than just COMMENT (default false)."),
+      findings: z
+        .array(
+          z.object({
+            id: z.string().optional().describe("Floor/agent finding id — embedded as a dedup marker."),
+            tier: z.enum(["must-fix", "concern", "nit"]),
+            file: z.string().describe("Repo-relative path (matches the diff)."),
+            line: z.number().describe("New-side line the finding starts on."),
+            endLine: z.number().optional().describe("New-side end line for a multi-line finding."),
+            body: z.string().describe("The comment markdown — rationale + a concrete fix / ```suggestion block."),
+          }),
+        )
+        .describe("Your VERIFIED survivors. Order is preserved; tiers drive the verdict."),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  async ({ root, mode, base, summary, approveWhenClean, findings }) => {
+    const repo = rootOf(root);
+    const m = (mode ?? "working") as ReviewMode;
+    if (m === "base" && !base) return fail("mode='base' requires a `base` ref (the PR base).");
+    const diff = diffText(repo, toMode(m, base ?? null));
+    if (!diff.trim()) {
+      return fail(
+        `No diff for mode='${m}'${base ? ` base='${base}'` : ""} — nothing to anchor against. ` +
+          `(mode='all' has no diff; for a PR use mode='base' with the PR's base ref.)`,
+      );
+    }
+    const payload = buildReviewPayload({
+      diff,
+      summary,
+      approveWhenClean,
+      findings: findings as VerifiedFinding[],
+    });
+    // Out-of-diff findings can't be inline — append them to the body so the PR
+    // review still carries them. Deterministic rendering; the prose was the agent's.
+    const postBody = payload.body + unanchoredMarkdown(payload.unanchored);
+    const post = {
+      event: payload.event,
+      body: postBody,
+      comments: payload.comments,
+    };
+    const recipe = [
+      "=== Splus · post this as a PR review (you drive the network call) ===",
+      `Event: ${payload.event} · ${payload.comments.length} inline comment(s)` +
+        (payload.unanchored.length ? ` · ${payload.unanchored.length} folded into the summary (out of diff)` : ""),
+      "",
+      "1. Resolve the PR coordinates (if you haven't):",
+      "   gh pr view --json number,baseRefName,headRefName,headRepositoryOwner,url",
+      "2. Write the payload below to a file (e.g. .splus-cache/pr-review.json), then POST it:",
+      "   gh api repos/{owner}/{repo}/pulls/{number}/reviews --method POST --input .splus-cache/pr-review.json",
+      "   (commit_id is optional — GitHub defaults to the PR's latest commit.)",
+      "",
+      "If the API 422s on a comment, that line left the diff since you reviewed — re-run `review` on the",
+      "current head and rebuild. To avoid double-posting on a re-review, first minimize/resolve prior",
+      "Splus comments (they carry a `<!-- splus:<id> -->` marker) or skip ids already present on the PR.",
+      "",
+      "--- PAYLOAD (POST verbatim) ---",
+      JSON.stringify(post, null, 2),
+    ].join("\n");
+    return ok(recipe);
+  },
+);
+
 // --- dismiss ---------------------------------------------------------------
 
 server.registerTool(
@@ -953,7 +1060,7 @@ async function main(): Promise<void> {
   await server.connect(transport);
   process.stderr.write(
     "splus-mcp ready (stdio) — local engine, no network · you are the reviewer; " +
-      "tools: review, inspect, floor, preferences, report, dismiss, accept, note, recall, mute, learnings, index\n",
+      "tools: review, inspect, floor, preferences, report, prReview, dismiss, accept, note, recall, mute, learnings, index\n",
   );
 }
 

@@ -333,28 +333,28 @@ if [ -z "${SPLUS_NO_WIRE:-}" ] && [ -d "$INSTALL_DIR/skills" ]; then
   # Claude Code — native skills (auto-triggered by name + user-invocable).
   if command -v claude >/dev/null 2>&1 || [ -d "$HOME/.claude" ]; then
     mkdir -p "$HOME/.claude/skills"
-    for s in review prefs; do
+    for s in review pr-review prefs; do
       [ -d "$INSTALL_DIR/skills/$s" ] || continue
       rm -rf "$HOME/.claude/skills/splus-$s"
       cp -R "$INSTALL_DIR/skills/$s" "$HOME/.claude/skills/splus-$s"
     done
-    ok "Claude Code skills (splus-review, splus-prefs)"
+    ok "Claude Code skills (splus-review, splus-pr-review, splus-prefs)"
   fi
 
   # Codex — custom prompts, slash-invocable (/splus-review).
   if command -v codex >/dev/null 2>&1 || [ -d "$HOME/.codex" ]; then
     mkdir -p "$HOME/.codex/prompts"
-    for s in review prefs; do
+    for s in review pr-review prefs; do
       [ -f "$INSTALL_DIR/skills/$s/SKILL.md" ] || continue
       { skill_body "$INSTALL_DIR/skills/$s/SKILL.md"; skill_refs "$s"; } > "$HOME/.codex/prompts/splus-$s.md"
     done
-    ok "Codex prompts (/splus-review, /splus-prefs)"
+    ok "Codex prompts (/splus-review, /splus-pr-review, /splus-prefs)"
   fi
 
   # OpenCode — commands, slash-invocable (/splus-review).
   if command -v opencode >/dev/null 2>&1 || [ -d "$HOME/.config/opencode" ]; then
     mkdir -p "$HOME/.config/opencode/command"
-    for s in review prefs; do
+    for s in review pr-review prefs; do
       [ -f "$INSTALL_DIR/skills/$s/SKILL.md" ] || continue
       {
         printf -- '---\ndescription: %s\n---\n' "$(skill_desc "$INSTALL_DIR/skills/$s/SKILL.md")"
@@ -362,7 +362,7 @@ if [ -z "${SPLUS_NO_WIRE:-}" ] && [ -d "$INSTALL_DIR/skills" ]; then
         skill_refs "$s"
       } > "$HOME/.config/opencode/command/splus-$s.md"
     done
-    ok "OpenCode commands (/splus-review, /splus-prefs)"
+    ok "OpenCode commands (/splus-review, /splus-pr-review, /splus-prefs)"
   fi
 fi
 

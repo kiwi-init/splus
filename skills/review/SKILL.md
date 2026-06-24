@@ -80,7 +80,10 @@ with a deterministic protocol audit** computed from this session's actual tool
 calls: changed exports never `inspect`ed, floor findings with no explicit fate
 (kept / dismissed / accepted). The audit can't be talked past — close every gap
 it lists, then fill the returned HTML template — the offline artifact the dev
-keeps next to the diff.
+keeps next to the diff. When the review IS a GitHub pull request, the PR-native
+deliverable is `prReview` instead (post the verified survivors as inline comments
++ a verdict with `gh`) — use the `splus-pr-review` skill, which runs this same
+protocol scoped to the PR's `base..HEAD`.
 
 ### 5. Teach — make diligence compound
 - `dismiss <id>` when the user agrees something is noise (generalizes).
