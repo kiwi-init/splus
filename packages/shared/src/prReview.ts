@@ -98,8 +98,10 @@ export function buildDiffAnchorIndex(diff: string): DiffAnchorIndex {
     const marker = raw[0];
     if (marker === "\\") continue; // "\ No newline at end of file" — not a real line
     if (marker === "-") continue; // removed (LEFT only) — doesn't advance the new side
-    if (marker === "+" || marker === " " || raw === "") {
-      // added, context, or a blank context line: present on the new side, commentable.
+    if (marker === "+" || marker === " ") {
+      // added or context: present on the new side, commentable. (A blank context
+      // line carries the " " marker too; a bare "" is only the trailing artifact
+      // `git diff`'s final newline leaves after split — never a real line.)
       const fa = index.get(file) ?? { commentable: new Set<number>(), hunk: new Map<number, number>() };
       fa.commentable.add(newLine);
       fa.hunk.set(newLine, hunkIdx);

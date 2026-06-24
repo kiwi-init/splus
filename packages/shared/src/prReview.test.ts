@@ -129,6 +129,16 @@ test("a deleted file (+++ /dev/null) yields no commentable lines", () => {
   assert.equal(idx.size, 0);
 });
 
+test("a trailing newline (real git diff) does not add a phantom line past the last hunk", () => {
+  // `git diff` output is newline-terminated, so `split("\n")` leaves a trailing "".
+  // It must not be classified as a context line on the diff's last file.
+  const diff = "diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -1,1 +1,2 @@\n a\n+b\n";
+  const idx = buildDiffAnchorIndex(diff);
+  const x = idx.get("x.ts")!;
+  assert.deepEqual([...x.commentable].sort((a, b) => a - b), [1, 2]); // not [1, 2, 3]
+  assert.equal(anchorFinding(idx, "x.ts", 3), null);
+});
+
 test("reviewEvent maps the verdict", () => {
   assert.equal(reviewEvent(2), "REQUEST_CHANGES");
   assert.equal(reviewEvent(0), "COMMENT");
