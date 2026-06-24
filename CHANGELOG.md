@@ -3,6 +3,25 @@
 All notable changes to Splus. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+Closer to the PR review workflow: land a verified Splus review on a GitHub pull request.
+
+### Added
+- **`prReview` MCP tool** + **`@splus/shared` diff-anchor mapper** — turns the agent's
+  verified survivors into a ready-to-post GitHub Pull Request Reviews payload. The mapper
+  (`buildDiffAnchorIndex` / `anchorFinding` / `buildReviewPayload`) is pure and
+  deterministic: it walks the PR's unified diff, resolves each finding's `file:line` to a
+  RIGHT-side inline anchor (multi-line within a hunk; collapses cross-hunk), folds
+  out-of-diff findings into the summary (never dropped), and picks the review event from
+  the must-fix count. The server stays read-only and never shells `gh` — it returns the
+  JSON and the `gh api … /reviews` command for the agent to post. The "what" (comment
+  prose) stays the agent's; the "where" (the anchor) is deterministic.
+- **`splus-pr-review` skill** — drives the round-trip: resolve the PR (`gh pr view` →
+  base/head/number) → run the existing review protocol scoped to the PR's `base..HEAD` →
+  emit verified survivors as a real PR review (inline comments + verdict). Wired into the
+  installer for Claude Code / Codex / OpenCode.
+
 ## [1.1.0] — 2026-06-09
 
 Dynamic grounding, history facts, a checkable protocol, and memory that ages.

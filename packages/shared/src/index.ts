@@ -349,3 +349,4 @@ export async function changedExportedSymbols(root: string, files: string[], diff
 
 // The per-repo review contract (`SPLUS.md`): loader + binding policy.
 export * from "./splusMd.js";
+export * from "./prReview.js";

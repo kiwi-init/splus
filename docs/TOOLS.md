@@ -17,6 +17,7 @@ API key and no cloud step; the coding agent connected over stdio is the reviewer
 | [`mute`](#mute) | yes | Silence an entire rule for this repo. |
 | [`learnings`](#learnings) | no | List what's been learned on this repo. |
 | [`report`](#report) | no | Audit protocol coverage deterministically, then render the offline HTML report. |
+| [`prReview`](#prreview) | no | Anchor verified findings to the diff → a ready-to-post GitHub PR review payload. |
 | [`index`](#index) | yes | Build a SCIP index for compiler-grade blast radius. |
 
 ## Typical flow
@@ -262,6 +263,32 @@ Read-only.
 |---|---|---|
 | `root` | string | Repo root. |
 | `keptIds` | string[] | The floor finding ids your verified report keeps — anything neither kept nor taught (`dismiss`/`accept`) is flagged as unaccounted. |
+
+---
+
+## `prReview`
+
+The PR-native deliverable — `report`'s sibling for when the review IS a GitHub
+pull request. You supply your **verified** survivors and a summary; this is the
+deterministic *where* (the *what* — every comment's prose — is yours). It
+recomputes the diff for `mode`/`base` (use the **same** scope you reviewed),
+anchors each finding to a real **RIGHT-side** diff line, folds any **out-of-diff**
+finding (an unchanged caller the change breaks) into the summary instead of
+dropping it, picks the review **event** from the must-fix count (`must-fix > 0` →
+`REQUEST_CHANGES`; else `COMMENT`, or `APPROVE` when `approveWhenClean`), and tags
+each comment with a hidden `<!-- splus:<id> -->` marker for re-review dedup. It
+**does not touch the network** — it returns the exact JSON and the `gh api …
+/reviews --input` command for **you** to post. Read-only. (The `splus-pr-review`
+skill drives the whole flow: resolve the PR → review `base..HEAD` → post.)
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `root` | string | server CWD | Repo root. |
+| `mode` | `working` \| `staged` \| `base` \| `all` | `working` | The scope you reviewed — recomputes the diff anchors resolve against. A PR is `base`. |
+| `base` | string | — | Base ref — required when `mode: "base"` (the PR base). |
+| `summary` | string | — | The review summary body (your prose; markdown + mermaid render on GitHub). |
+| `approveWhenClean` | boolean | `false` | With zero must-fix, `APPROVE` rather than just `COMMENT`. |
+| `findings` | object[] | — | Your verified survivors: `{ id?, tier, file, line, endLine?, body }`. Tiers drive the verdict; `body` is the comment markdown (rationale + a `suggestion` block). |
 
 ---
 
