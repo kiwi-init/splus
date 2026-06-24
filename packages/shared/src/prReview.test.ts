@@ -116,6 +116,14 @@ test("an added line whose content starts with +++ is not mistaken for a header",
   assert.equal(idx.has("not a header, just markdown"), false);
 });
 
+test("strips git mnemonic prefixes (diff.mnemonicPrefix) so paths match findings", () => {
+  // Under `diff.mnemonicPrefix` the new side is `w/`/`i/`/`c/`, not `b/`.
+  const diff = ["diff --git i/src/x.ts w/src/x.ts", "--- i/src/x.ts", "+++ w/src/x.ts", "@@ -1,1 +1,2 @@", " a", "+b"].join("\n");
+  const idx = buildDiffAnchorIndex(diff);
+  assert.equal(idx.has("src/x.ts"), true); // not "w/src/x.ts"
+  assert.deepEqual(anchorFinding(idx, "src/x.ts", 2), { path: "src/x.ts", side: "RIGHT", line: 2 });
+});
+
 test("a deleted file (+++ /dev/null) yields no commentable lines", () => {
   const diff = [
     "diff --git a/gone.ts b/gone.ts",

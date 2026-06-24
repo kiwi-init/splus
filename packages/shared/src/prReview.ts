@@ -49,9 +49,15 @@ const FILE_RE = /^\+\+\+ (.+)$/;
 // `@@ -old,oldCount +new,newCount @@` — we only need the new-side start.
 const HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
 
-/** Git prefixes the new path with `b/` by default; repo-relative paths drop it. */
+// Git tags diff paths with a one-letter prefix + `/`: `a`/`b` by default, or the
+// mnemonic `c`(commit) `i`(index) `o`(object) `w`(worktree) under
+// `diff.mnemonicPrefix`. Strip it so the path matches a finding's repo-relative
+// one. (Under `diff.noprefix` there's no prefix and a bare path is left as-is;
+// the only residual ambiguity is a no-prefix repo whose top-level dir is a single
+// letter in this set — rare enough to accept, and it fails safe to the summary.)
+const GIT_DIFF_PREFIXES = new Set(["a", "b", "c", "i", "o", "w"]);
 function normalizePath(p: string): string {
-  if (p.startsWith("b/") || p.startsWith("a/")) return p.slice(2);
+  if (p.length > 2 && p[1] === "/" && GIT_DIFF_PREFIXES.has(p[0]!)) return p.slice(2);
   return p;
 }
 
