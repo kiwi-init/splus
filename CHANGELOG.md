@@ -3,7 +3,7 @@
 All notable changes to Splus. Format follows [Keep a Changelog](https://keepachangelog.com);
 this project uses [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [1.2.0] — 2026-06-30
 
 Closer to the PR review workflow: land a verified Splus review on a GitHub pull request.
 
